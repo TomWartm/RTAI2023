@@ -30,7 +30,7 @@ class DeepPoly:
         return self
 
     def check_postcondition(self, true_label: int) -> bool:
-        return True
+        return False
 
 
 def construct_initial_shape(x: torch.Tensor, eps: float) -> 'DeepPoly':
