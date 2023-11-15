@@ -47,8 +47,15 @@ class DeepPoly:
         uc = torch.flatten(self.uc)
         return DeepPoly(lb, ub, lc, uc, self)
 
-    def check_postcondition(self, true_label: int) -> bool:
-        return False
+
+def check_postcondition(dp: 'DeepPoly',true_label: int) -> bool:
+    lb = dp.lb
+    ub = dp.ub
+    while dp:
+        if check_bounds(lb, ub, true_label):
+            return True
+        dp = dp.parent
+    return False
 
 
 def construct_initial_shape(x: torch.Tensor, eps: float) -> 'DeepPoly':
@@ -59,3 +66,12 @@ def construct_initial_shape(x: torch.Tensor, eps: float) -> 'DeepPoly':
     ub.clamp_(min=0, max=1)
 
     return DeepPoly(lb, ub, lb, ub, None)
+
+
+def check_bounds(lb: torch.tensor, ub: torch.tensor, index: int):
+    assert (lb.ndim == 1) and (ub.ndim == 1)
+    assert (index < len(lb)) and (index < len(ub))
+    bounds = ub
+    bounds[index] = lb[index]
+    return torch.argmax(bounds) == index
+

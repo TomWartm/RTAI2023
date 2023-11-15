@@ -4,7 +4,7 @@ import torch
 from networks import get_network
 from utils.loading import parse_spec
 
-from deep_poly import construct_initial_shape
+from deep_poly import construct_initial_shape, check_postcondition
 from torch import nn
 
 DEVICE = "cpu"
@@ -27,7 +27,7 @@ def analyze(
             dp = dp.propagate_flatten()
         else:
             raise NotImplementedError(f'Unsupported layer type: {type(layer)}')
-    return dp.check_postcondition(true_label)
+    return check_postcondition(dp, true_label)
 
 
 def main():
