@@ -61,7 +61,10 @@ def main():
                 assert pred_label == true_label
 
                 start = perf_counter()
-                verified = analyze(net, image, eps, true_label)
+                try:
+                    verified = analyze(net, image, eps, true_label)
+                except:
+                    verified = False
                 dt = perf_counter() - start
 
                 print(f'  [white]{i+1}.{j+1}  {net_name}: {spec}')

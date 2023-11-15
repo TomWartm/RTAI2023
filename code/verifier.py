@@ -24,7 +24,7 @@ def analyze(
         elif isinstance(layer, nn.Conv2d):
             dp = dp.propagate_conv2d(layer)
         elif isinstance(layer, nn.Flatten):
-            dp = dp.propagate_flatten(layer)
+            dp = dp.propagate_flatten()
         else:
             raise NotImplementedError(f'Unsupported layer type: {type(layer)}')
     return dp.check_postcondition(true_label)
