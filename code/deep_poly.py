@@ -38,12 +38,31 @@ class DeepPoly:
 
 
 def check_postcondition(dp: 'DeepPoly', true_label: int) -> bool:
+
+    # INITIALIZATION
+    #
+    #               | 0  1  0  0  .  .  .  0  |
+    #               | 0  0  1  0  .  .  .  0  |
+    #               | 0  0  0  1  .  .  .  0  |
+    # uc  =  lc  =  | .  .  .  .  .        .  |
+    #               | .  .  .  .     .     .  |
+    #               | .  .  .  .        .  .  |
+    #               | 0  0  0  0  .  .  .  1  |
+
     augment = torch.zeros(dp.uc.shape[0])
     augment = torch.unsqueeze(augment, 1)
     uc = torch.cat((augment, torch.eye(dp.uc.shape[0])), 1)
     lc = torch.cat((augment, torch.eye(dp.lc.shape[0])), 1)
 
     while dp.parent:
+
+        # UPDATE RULE OF CONDITIONAL MATRICES
+        #
+        #                               |  1  0  0  .  .  .  0  |
+        #                               |                       |
+        # CONDITIONAL = CONDITIONAL  X  |   PARENT CONDITIONAL  |
+        #                               |                       |
+
         e = torch.zeros(dp.uc.shape)[1]
         e[0] = 1
         e = torch.unsqueeze(e, 0)
