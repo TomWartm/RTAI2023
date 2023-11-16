@@ -77,7 +77,7 @@ def construct_initial_shape(x: torch.Tensor, eps: float) -> 'DeepPoly':
     return DeepPoly(lb, ub, lc, uc, None)
 
 
-def check_bounds(lb: torch.tensor, ub: torch.tensor, index: int):
+def check_bounds(lb: torch.tensor, ub: torch.tensor, index: int) -> bool:
     assert (lb.ndim == 1) and (ub.ndim == 1)
     assert (index < len(lb)) and (index < len(ub))
     bounds = ub
@@ -85,7 +85,9 @@ def check_bounds(lb: torch.tensor, ub: torch.tensor, index: int):
     return torch.argmax(bounds) == index
 
 
-def get_bounds_from_conditional(lb: torch.tensor, ub: torch.tensor, lc: torch.tensor, uc: torch.tensor):
+def get_bounds_from_conditional(
+        lb: torch.tensor, ub: torch.tensor, lc: torch.tensor, uc: torch.tensor
+) -> (torch.tensor, torch.tensor):
     augmented_lb = torch.cat((torch.tensor([1]), lb), 0)
     augmented_ub = torch.cat((torch.tensor([1]), ub), 0)
     new_lb = []
