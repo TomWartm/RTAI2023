@@ -10,11 +10,13 @@ from rich import print
 
 
 DEVICE = 'cpu'
-PROJECT_PATH = os.path.join(pathlib.Path(__file__).parent.absolute(), '..')
+PROJECT_PATH = os.path.join(pathlib.Path(__file__).parent.absolute(), '..').replace(os.sep, '/') # change \\ to / for windows
+
+
 
 
 def get_gt():
-    gt_file = os.path.join(PROJECT_PATH, 'test_cases', 'gt.txt')
+    gt_file = os.path.join(PROJECT_PATH, 'test_cases', 'gt.txt').replace(os.sep, '/')
     with open(gt_file) as f:
         lines = f.readlines()
     data = {}
@@ -50,9 +52,9 @@ def main():
         for i, net_name in enumerate([net_name for net_name in gt.keys() if net_name.startswith(network_type[1])]):
             for j, spec in enumerate(gt[net_name]):
                 gt_verified = gt[net_name][spec]
-                true_label, dataset, image, eps = parse_spec(os.path.join(PROJECT_PATH, 'test_cases', net_name, spec))
+                true_label, dataset, image, eps = parse_spec(os.path.join(PROJECT_PATH, 'test_cases', net_name, spec).replace(os.sep, '/'))
                 net = get_network(net_name,
-                                  dataset, os.path.join(PROJECT_PATH, f'models/{dataset}_{net_name}.pt')).to(DEVICE)
+                                  dataset, os.path.join(PROJECT_PATH, f'models/{dataset}_{net_name}.pt').replace(os.sep, '/')).to(DEVICE)
 
                 image = image.to(DEVICE)
                 out = net(image.unsqueeze(0))
