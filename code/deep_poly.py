@@ -8,6 +8,7 @@ class DeepPoly:
     A DeepPoly representation of a single layer in a NN.
     The whole NN can be represented as a linked list of DeepPoly objects.
     """
+
     def __init__(self,
                  lb: torch.Tensor,
                  ub: torch.Tensor,
@@ -52,7 +53,35 @@ class DeepPoly:
         :param relu_layer:    Specific ReLU layer of NN
         :return:    DeepPoly for that Layer
         """
-        return self
+        # Naive implementation
+        # x{i+1} <= \lambda_i * (x_i - l_{x_i}) ==> uc
+        # x{i+1] >= 0   ==> lc
+        # \lambda_i = u_{x_i} / (u_{x_i} - l_{x_i})
+
+        # Naive 2:
+        # x{i+1} <= \lambda_i * (x_i - l_{x_i}) ==> uc
+        # x{i+1] >= x   ==> lc
+        # \lambda_i = u_{x_i} / (u_{x_i} - l_{x_i})
+
+        # Alpha Relaxation:
+        # x{i+1} <= \lambda_i * (x_i - l_{x_i}) ==> uc
+        # x{i+1] >= \alpha * x   ==> lc, with alpha learned
+        # \lambda_i = u_{x_i} / (u_{x_i} - l_{x_i})
+
+        #maybe need to catch case self.ub == self.lb
+        slope = torch.divide(self.ub, (self.ub - self.lb))
+        """Naive 1"""
+        lc = torch.zeros((self.lb.shape[0], self.lb.shape[0]+1))
+        """Naive 2"""
+        #lc = torch.cat((torch.zeros((self.lb.shape[0], 1)), torch.eye(self.lb.shape[0])), 1)
+        """Alpha Relaxation"""
+        # alpha = ..., element in [0, 1] (for leaky ReLU in [negative_slope, 1])
+        # lc = torch.cat((torch.zeros((self.lb.shape[0], 1)), torch.multiply(torch.eye(self.lb.shape[0]), alpha)), 1)
+
+        uc = torch.cat((torch.unsqueeze(torch.multiply(self.lb, -slope), 1), torch.multiply(torch.eye(self.lb.shape[0]), slope)), 1)
+        lb, ub = get_bounds_from_conditional(self.lb, self.ub, lc, uc)
+
+        return DeepPoly(lb, ub, lc, uc, self)
 
     def propagate_leakyrelu(self, leakyrelu_layer: nn.LeakyReLU) -> 'DeepPoly':
         """
@@ -62,7 +91,24 @@ class DeepPoly:
         :param leakyrelu_layer:    Specific leaky ReLU layer of NN
         :return:    DeepPoly for that Layer
         """
-        return self
+        # Naive:
+        # x{i+1} <= \lambda_i * (x_i - l_{x_i}) ==> uc
+        # x{i+1] >= x   ==> lc
+        # \lambda_i = u_{x_i} / (u_{x_i} - l_{x_i})
+
+        # Alpha Relaxation:
+        # x{i+1} <= \lambda_i * (x_i - l_{x_i}) ==> uc
+        # x{i+1] >= \alpha * x   ==> lc, with alpha learned
+        # \lambda_i = u_{x_i} / (u_{x_i} - l_{x_i})
+
+        # maybe need to catch case self.ub == self.lb
+        slope = torch.divide(self.ub, (self.ub - self.lb))
+        """Naive"""
+        lc = torch.cat((torch.zeros((self.lb.shape[0], 1)), torch.multiply(torch.eye(self.lb.shape[0]), leakyrelu_layer.negative_slope)), 1)
+        uc = torch.cat((torch.unsqueeze(torch.multiply(self.lb, -slope), 1), torch.multiply(torch.eye(self.lb.shape[0]), slope)), 1)
+        lb, ub = get_bounds_from_conditional(self.lb, self.ub, lc, uc)
+
+        return DeepPoly(lb, ub, lc, uc, self)
 
     def propagate_flatten(self) -> 'DeepPoly':
         """
@@ -160,7 +206,7 @@ def check_bounds(lb: torch.tensor, ub: torch.tensor, index: int) -> bool:
     assert (lb.ndim == 1) and (ub.ndim == 1)
     assert (index < len(lb)) and (index < len(ub))
     bounds = ub
-    bounds[index] = lb[index]
+    bounds[index] = lb[index] 
     return torch.argmax(bounds) == index
 
 
