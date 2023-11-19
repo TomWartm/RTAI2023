@@ -25,7 +25,7 @@ class DeepPoly:
         self.uc = uc
         self.parent = parent
 
-    def propagate_linear(self, linear_layer: nn.Linear) -> "DeepPoly":
+    def propagate_linear(self, linear_layer: nn.Linear) -> 'DeepPoly':
         """
         Append new DeepPoly for a linear layer
 
@@ -39,7 +39,7 @@ class DeepPoly:
 
         return DeepPoly(lb, ub, lc, uc, self)
 
-    def propagate_conv2d(self, conv_layer: nn.Conv2d) -> "DeepPoly":
+    def propagate_conv2d(self, conv_layer: nn.Conv2d) -> 'DeepPoly':
         """
         Generate DeepPoly for a convolutional layer
 
@@ -70,9 +70,37 @@ class DeepPoly:
         :param relu_layer:    Specific ReLU layer of NN
         :return:    DeepPoly for that Layer
         """
-        return self
+        # Naive implementation
+        # x{i+1} <= \lambda_i * (x_i - l_{x_i}) ==> uc
+        # x{i+1] >= 0   ==> lc
+        # \lambda_i = u_{x_i} / (u_{x_i} - l_{x_i})
 
-    def propagate_leakyrelu(self, leakyrelu_layer: nn.LeakyReLU) -> "DeepPoly":
+        # Naive 2:
+        # x{i+1} <= \lambda_i * (x_i - l_{x_i}) ==> uc
+        # x{i+1] >= x   ==> lc
+        # \lambda_i = u_{x_i} / (u_{x_i} - l_{x_i})
+
+        # Alpha Relaxation:
+        # x{i+1} <= \lambda_i * (x_i - l_{x_i}) ==> uc
+        # x{i+1] >= \alpha * x   ==> lc, with alpha learned
+        # \lambda_i = u_{x_i} / (u_{x_i} - l_{x_i})
+
+        #maybe need to catch case self.ub == self.lb
+        slope = torch.divide(self.ub, (self.ub - self.lb))
+        """Naive 1"""
+        lc = torch.zeros((self.lb.shape[0], self.lb.shape[0]+1))
+        """Naive 2"""
+        #lc = torch.cat((torch.zeros((self.lb.shape[0], 1)), torch.eye(self.lb.shape[0])), 1)
+        """Alpha Relaxation"""
+        # alpha = ..., element in [0, 1] (for leaky ReLU in [negative_slope, 1])
+        # lc = torch.cat((torch.zeros((self.lb.shape[0], 1)), torch.multiply(torch.eye(self.lb.shape[0]), alpha)), 1)
+
+        uc = torch.cat((torch.unsqueeze(torch.multiply(self.lb, -slope), 1), torch.multiply(torch.eye(self.lb.shape[0]), slope)), 1)
+        lb, ub = get_bounds_from_conditional(self.lb, self.ub, lc, uc)
+
+        return DeepPoly(lb, ub, lc, uc, self)
+
+    def propagate_leakyrelu(self, leakyrelu_layer: nn.LeakyReLU) -> 'DeepPoly':
         """
         NOT IMPLEMENTED YET
         Generate DeepPoly for a leaky ReLU layer
@@ -80,9 +108,26 @@ class DeepPoly:
         :param leakyrelu_layer:    Specific leaky ReLU layer of NN
         :return:    DeepPoly for that Layer
         """
-        return self
+        # Naive:
+        # x{i+1} <= \lambda_i * (x_i - l_{x_i}) ==> uc
+        # x{i+1] >= x   ==> lc
+        # \lambda_i = u_{x_i} / (u_{x_i} - l_{x_i})
 
-    def propagate_flatten(self) -> "DeepPoly":
+        # Alpha Relaxation:
+        # x{i+1} <= \lambda_i * (x_i - l_{x_i}) ==> uc
+        # x{i+1] >= \alpha * x   ==> lc, with alpha learned
+        # \lambda_i = u_{x_i} / (u_{x_i} - l_{x_i})
+
+        # maybe need to catch case self.ub == self.lb
+        slope = torch.divide(self.ub, (self.ub - self.lb))
+        """Naive"""
+        lc = torch.cat((torch.zeros((self.lb.shape[0], 1)), torch.multiply(torch.eye(self.lb.shape[0]), leakyrelu_layer.negative_slope)), 1)
+        uc = torch.cat((torch.unsqueeze(torch.multiply(self.lb, -slope), 1), torch.multiply(torch.eye(self.lb.shape[0]), slope)), 1)
+        lb, ub = get_bounds_from_conditional(self.lb, self.ub, lc, uc)
+
+        return DeepPoly(lb, ub, lc, uc, self)
+
+    def propagate_flatten(self) -> 'DeepPoly':
         """
         NOT IMPLEMENTED YET
         Generate DeepPoly for a flatten call on NN
@@ -92,7 +137,7 @@ class DeepPoly:
         return self
 
 
-def check_postcondition(dp: "DeepPoly", true_label: int) -> bool:
+def check_postcondition(dp: 'DeepPoly', true_label: int) -> bool:
     """
     Do backsubstitution over all DeepPoly layers and verify bounds.
 
@@ -117,6 +162,7 @@ def check_postcondition(dp: "DeepPoly", true_label: int) -> bool:
     lc = torch.cat((augment, torch.eye(dp.lc.shape[0])), 1)
 
     while dp.parent:
+
         # UPDATE RULE OF CONDITIONAL MATRICES
         #
         #                               |  1  0  0  .  .  .  0  |
@@ -141,7 +187,7 @@ def check_postcondition(dp: "DeepPoly", true_label: int) -> bool:
     return False
 
 
-def construct_initial_shape(x: torch.Tensor, eps: float) -> "DeepPoly":
+def construct_initial_shape(x: torch.Tensor, eps: float) -> 'DeepPoly':
     """
     Generate DeepPoly to kickstart the calculation
 
@@ -182,7 +228,7 @@ def check_bounds(lb: torch.tensor, ub: torch.tensor, index: int) -> bool:
 
 
 def get_bounds_from_conditional(
-    lb: torch.tensor, ub: torch.tensor, lc: torch.tensor, uc: torch.tensor
+        lb: torch.tensor, ub: torch.tensor, lc: torch.tensor, uc: torch.tensor
 ) -> (torch.tensor, torch.tensor):
     """
     Calculates new bounds, based previous layer and the conditional bounds.
