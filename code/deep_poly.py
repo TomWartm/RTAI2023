@@ -1,6 +1,8 @@
 from torch import nn
 import torch
 from typing import Optional
+from conv_to_fc import conv_to_fc
+import numpy as np
 
 
 class DeepPoly:
@@ -8,19 +10,22 @@ class DeepPoly:
     A DeepPoly representation of a single layer in a NN.
     The whole NN can be represented as a linked list of DeepPoly objects.
     """
-    def __init__(self,
-                 lb: torch.Tensor,
-                 ub: torch.Tensor,
-                 lc: torch.Tensor,
-                 uc: torch.Tensor,
-                 parent: Optional['DeepPoly']):
+
+    def __init__(
+        self,
+        lb: torch.Tensor,
+        ub: torch.Tensor,
+        lc: torch.Tensor,
+        uc: torch.Tensor,
+        parent: Optional["DeepPoly"],
+    ):
         self.lb = lb
         self.ub = ub
         self.lc = lc
         self.uc = uc
         self.parent = parent
 
-    def propagate_linear(self, linear_layer: nn.Linear) -> 'DeepPoly':
+    def propagate_linear(self, linear_layer: nn.Linear) -> "DeepPoly":
         """
         Append new DeepPoly for a linear layer
 
@@ -34,17 +39,30 @@ class DeepPoly:
 
         return DeepPoly(lb, ub, lc, uc, self)
 
-    def propagate_conv2d(self, conv_layer: nn.Conv2d) -> 'DeepPoly':
+    def propagate_conv2d(self, conv_layer: nn.Conv2d) -> "DeepPoly":
         """
-        NOT IMPLEMENTED YET
         Generate DeepPoly for a convolutional layer
 
         :param conv_layer:    Specific convolutional layer of NN
         :return:    DeepPoly for that Layer
         """
-        return self
+        # find input dimensions
+        assert self.ub.ndim == 1
+        parent_size = self.ub.size()[0]
+        img_size = int(np.sqrt(parent_size // conv_layer.in_channels))
+        assert conv_layer.in_channels * img_size * img_size == parent_size
+        input_size = [
+            conv_layer.in_channels,
+            img_size,
+            img_size,
+        ]  # e.g. first layer [1,28,28]
 
-    def propagate_relu(self, relu_layer: nn.ReLU) -> 'DeepPoly':
+        # convert Convolutional into linear layer
+        linear_layer = conv_to_fc(conv_layer, input_size)
+
+        return self.propagate_linear(linear_layer)
+
+    def propagate_relu(self, relu_layer: nn.ReLU) -> "DeepPoly":
         """
         NOT IMPLEMENTED YET
         Generate DeepPoly for a ReLU layer
@@ -54,7 +72,7 @@ class DeepPoly:
         """
         return self
 
-    def propagate_leakyrelu(self, leakyrelu_layer: nn.LeakyReLU) -> 'DeepPoly':
+    def propagate_leakyrelu(self, leakyrelu_layer: nn.LeakyReLU) -> "DeepPoly":
         """
         NOT IMPLEMENTED YET
         Generate DeepPoly for a leaky ReLU layer
@@ -64,7 +82,7 @@ class DeepPoly:
         """
         return self
 
-    def propagate_flatten(self) -> 'DeepPoly':
+    def propagate_flatten(self) -> "DeepPoly":
         """
         NOT IMPLEMENTED YET
         Generate DeepPoly for a flatten call on NN
@@ -74,7 +92,7 @@ class DeepPoly:
         return self
 
 
-def check_postcondition(dp: 'DeepPoly', true_label: int) -> bool:
+def check_postcondition(dp: "DeepPoly", true_label: int) -> bool:
     """
     Do backsubstitution over all DeepPoly layers and verify bounds.
 
@@ -99,7 +117,6 @@ def check_postcondition(dp: 'DeepPoly', true_label: int) -> bool:
     lc = torch.cat((augment, torch.eye(dp.lc.shape[0])), 1)
 
     while dp.parent:
-
         # UPDATE RULE OF CONDITIONAL MATRICES
         #
         #                               |  1  0  0  .  .  .  0  |
@@ -124,7 +141,7 @@ def check_postcondition(dp: 'DeepPoly', true_label: int) -> bool:
     return False
 
 
-def construct_initial_shape(x: torch.Tensor, eps: float) -> 'DeepPoly':
+def construct_initial_shape(x: torch.Tensor, eps: float) -> "DeepPoly":
     """
     Generate DeepPoly to kickstart the calculation
 
@@ -165,7 +182,7 @@ def check_bounds(lb: torch.tensor, ub: torch.tensor, index: int) -> bool:
 
 
 def get_bounds_from_conditional(
-        lb: torch.tensor, ub: torch.tensor, lc: torch.tensor, uc: torch.tensor
+    lb: torch.tensor, ub: torch.tensor, lc: torch.tensor, uc: torch.tensor
 ) -> (torch.tensor, torch.tensor):
     """
     Calculates new bounds, based previous layer and the conditional bounds.
