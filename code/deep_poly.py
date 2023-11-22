@@ -41,7 +41,6 @@ class DeepPoly:
 
     def propagate_conv2d(self, conv_layer: nn.Conv2d) -> "DeepPoly":
         """
-        NOT IMPLEMENTED YET
         Generate DeepPoly for a convolutional layer
 
         :param conv_layer:    Specific convolutional layer of NN
