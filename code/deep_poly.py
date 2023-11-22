@@ -3,6 +3,12 @@ import torch
 from typing import Optional
 
 
+def get_2d_mask(x):
+        # repeats x len(x)+1 times 
+        # tensor([0,1]) -> tensor([[0, 0, 0],
+        #                          [1, 1, 1]])
+        return torch.transpose(x.repeat(x.shape[0]+1).reshape(x.shape[0]+1,x.shape[0]),0,1)
+
 class DeepPoly:
     """
     A DeepPoly representation of a single layer in a NN.
@@ -68,21 +74,38 @@ class DeepPoly:
         # x{i+1] >= \alpha * x   ==> lc, with alpha learned
         # \lambda_i = u_{x_i} / (u_{x_i} - l_{x_i})
 
-        #maybe need to catch case self.ub == self.lb
+
         slope = torch.divide(self.ub, (self.ub - self.lb))
         """Naive 1"""
+        # upper bounds =< 0
         lc = torch.zeros((self.lb.shape[0], self.lb.shape[0]+1))
+        uc = torch.zeros((self.lb.shape[0], self.lb.shape[0]+1))
+
+        # lower bound >= 0
+        positive = torch.where(self.lb >= 0,torch.ones_like(self.lb, dtype=torch.bool), torch.zeros_like(self.lb, dtype=torch.bool))
+        positive_mask = get_2d_mask(positive) # is 1 in columns having a positive lower bound, else 0
+        
+        lc = torch.where(positive_mask, torch.cat((torch.unsqueeze(torch.zeros_like(self.lb), 1), torch.eye(self.lb.shape[0])), 1), lc)
+        uc = torch.where(positive_mask, torch.cat((torch.unsqueeze(torch.zeros_like(self.lb), 1), torch.eye(self.lb.shape[0])), 1), uc)
+
+        # lower bound < 0 and upper bound > 0
+        between = torch.where(torch.logical_and((self.lb < 0), (self.ub > 0)), torch.ones_like(self.lb, dtype=torch.bool), torch.zeros_like(self.lb, dtype=torch.bool)) 
+        between_mask = get_2d_mask(between) # is 1 in columns having negative lower bound and positive upper bound, else 0
+        lc = torch.where(between_mask, torch.zeros((self.lb.shape[0], self.lb.shape[0]+1)), lc)
+        uc = torch.where(between_mask, torch.cat((torch.unsqueeze(torch.multiply(self.lb, -slope), 1), torch.multiply(torch.eye(self.lb.shape[0]), slope)), 1), uc)
+        
+        
         """Naive 2"""
         #lc = torch.cat((torch.zeros((self.lb.shape[0], 1)), torch.eye(self.lb.shape[0])), 1)
         """Alpha Relaxation"""
         # alpha = ..., element in [0, 1] (for leaky ReLU in [negative_slope, 1])
         # lc = torch.cat((torch.zeros((self.lb.shape[0], 1)), torch.multiply(torch.eye(self.lb.shape[0]), alpha)), 1)
 
-        uc = torch.cat((torch.unsqueeze(torch.multiply(self.lb, -slope), 1), torch.multiply(torch.eye(self.lb.shape[0]), slope)), 1)
+        
         lb, ub = get_bounds_from_conditional(self.lb, self.ub, lc, uc)
 
         return DeepPoly(lb, ub, lc, uc, self)
-
+    
     def propagate_leakyrelu(self, leakyrelu_layer: nn.LeakyReLU) -> 'DeepPoly':
         """
         NOT IMPLEMENTED YET
@@ -108,7 +131,7 @@ class DeepPoly:
         uc = torch.cat((torch.unsqueeze(torch.multiply(self.lb, -slope), 1), torch.multiply(torch.eye(self.lb.shape[0]), slope)), 1)
         lb, ub = get_bounds_from_conditional(self.lb, self.ub, lc, uc)
 
-        return DeepPoly(lb, ub, lc, uc, self)
+        return self
 
     def propagate_flatten(self) -> 'DeepPoly':
         """
