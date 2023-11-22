@@ -1,22 +1,26 @@
 from torch import nn
 import torch
 from typing import Optional
+from conv_to_fc import conv_to_fc
+import numpy as np
 
 
 class DeepPoly:
-    def __init__(self,
-                 lb: torch.Tensor,
-                 ub: torch.Tensor,
-                 lc: torch.Tensor,
-                 uc: torch.Tensor,
-                 parent: Optional['DeepPoly']):
+    def __init__(
+        self,
+        lb: torch.Tensor,
+        ub: torch.Tensor,
+        lc: torch.Tensor,
+        uc: torch.Tensor,
+        parent: Optional["DeepPoly"],
+    ):
         self.lb = lb
         self.ub = ub
         self.lc = lc
         self.uc = uc
         self.parent = parent
 
-    def propagate_linear(self, linear_layer: nn.Linear) -> 'DeepPoly':
+    def propagate_linear(self, linear_layer: nn.Linear) -> "DeepPoly":
         lc = torch.cat((torch.unsqueeze(linear_layer.bias, 1), linear_layer.weight), 1)
         uc = lc
 
@@ -24,21 +28,34 @@ class DeepPoly:
 
         return DeepPoly(lb, ub, lc, uc, self)
 
-    def propagate_conv2d(self, conv_layer: nn.Conv2d) -> 'DeepPoly':
+    def propagate_conv2d(self, conv_layer: nn.Conv2d) -> "DeepPoly":
+        # find input dimensions
+        assert self.ub.ndim == 1
+        parent_size = self.ub.size()[0]
+        img_size = int(np.sqrt(parent_size // conv_layer.in_channels))
+        assert conv_layer.in_channels * img_size * img_size == parent_size
+        input_size = [
+            conv_layer.in_channels,
+            img_size,
+            img_size,
+        ]  # e.g. first layer [1,28,28]
+
+        # convert Convolutional into linear layer
+        linear_layer = conv_to_fc(conv_layer, input_size)
+
+        return self.propagate_linear(linear_layer)
+
+    def propagate_relu(self, relu_layer: nn.ReLU) -> "DeepPoly":
         return self
 
-    def propagate_relu(self, relu_layer: nn.ReLU) -> 'DeepPoly':
+    def propagate_leakyrelu(self, leakyrelu_layer: nn.LeakyReLU) -> "DeepPoly":
         return self
 
-    def propagate_leakyrelu(self, leakyrelu_layer: nn.LeakyReLU) -> 'DeepPoly':
-        return self
-
-    def propagate_flatten(self) -> 'DeepPoly':
+    def propagate_flatten(self) -> "DeepPoly":
         return self
 
 
-def check_postcondition(dp: 'DeepPoly', true_label: int) -> bool:
-
+def check_postcondition(dp: "DeepPoly", true_label: int) -> bool:
     # INITIALIZATION
     #
     #               | 0  1  0  0  .  .  .  0  |
@@ -55,7 +72,6 @@ def check_postcondition(dp: 'DeepPoly', true_label: int) -> bool:
     lc = torch.cat((augment, torch.eye(dp.lc.shape[0])), 1)
 
     while dp.parent:
-
         # UPDATE RULE OF CONDITIONAL MATRICES
         #
         #                               |  1  0  0  .  .  .  0  |
@@ -80,7 +96,7 @@ def check_postcondition(dp: 'DeepPoly', true_label: int) -> bool:
     return False
 
 
-def construct_initial_shape(x: torch.Tensor, eps: float) -> 'DeepPoly':
+def construct_initial_shape(x: torch.Tensor, eps: float) -> "DeepPoly":
     lb = x - eps
     lb.clamp_(min=0, max=1)
 
@@ -105,7 +121,7 @@ def check_bounds(lb: torch.tensor, ub: torch.tensor, index: int) -> bool:
 
 
 def get_bounds_from_conditional(
-        lb: torch.tensor, ub: torch.tensor, lc: torch.tensor, uc: torch.tensor
+    lb: torch.tensor, ub: torch.tensor, lc: torch.tensor, uc: torch.tensor
 ) -> (torch.tensor, torch.tensor):
     augmented_lb = torch.cat((torch.tensor([1]), lb), 0)
     augmented_ub = torch.cat((torch.tensor([1]), ub), 0)
