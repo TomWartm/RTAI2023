@@ -13,6 +13,15 @@ DEVICE = "cpu"
 def analyze(
     net: torch.nn.Module, inputs: torch.Tensor, eps: float, true_label: int
 ) -> bool:
+    """
+    Analyze and verify NN with a DeepPoly approach.
+
+    :param net: NN to verify
+    :param inputs:  Input Data to NN for which it is to verify
+    :param eps: Perturbation for which the NN should be verified
+    :true_label:    Correct OutPut label, the NN should generate
+    :return:    True if NN can be verified with perpetuation, False if not.
+    """
     dp = construct_initial_shape(inputs, eps)
     for layer in net:
         if isinstance(layer, nn.Linear):
