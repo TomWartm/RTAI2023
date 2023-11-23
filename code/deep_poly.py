@@ -92,7 +92,7 @@ class DeepPoly:
         between = torch.where(torch.logical_and((self.lb < 0), (self.ub > 0)), torch.ones_like(self.lb, dtype=torch.bool), torch.zeros_like(self.lb, dtype=torch.bool)) 
         between_mask = get_2d_mask(between) # is 1 in columns having negative lower bound and positive upper bound, else 0
         lc = torch.where(between_mask, torch.zeros((self.lb.shape[0], self.lb.shape[0]+1)), lc)
-        uc = torch.where(between_mask, torch.cat((torch.unsqueeze(torch.multiply(self.lb, -slope), 1), torch.multiply(torch.eye(self.lb.shape[0]), slope)), 1), uc)
+        uc = torch.where(between_mask, torch.cat((torch.unsqueeze(torch.multiply(self.lb, slope), 1), torch.multiply(torch.eye(self.lb.shape[0]), slope)), 1), uc)
         
         
         """Naive 2"""
