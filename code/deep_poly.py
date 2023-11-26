@@ -6,7 +6,7 @@ import numpy as np
 
 
 def get_2d_mask(x):
-        # repeats x len(x)+1 times 
+        # repeats x len(x)+1 times
         # tensor([0,1]) -> tensor([[0, 0, 0],
         #                          [1, 1, 1]])
         return torch.transpose(x.repeat(x.shape[0]+1).reshape(x.shape[0]+1,x.shape[0]),0,1)
@@ -91,8 +91,8 @@ class DeepPoly:
         # x{i+1] >= \alpha * x   ==> lc, with alpha learned
         # \lambda_i = u_{x_i} / (u_{x_i} - l_{x_i})
 
-
         slope = torch.divide(self.ub, (self.ub - self.lb))
+
         """Naive 1"""
         # upper bounds =< 0
         lc = torch.zeros((self.lb.shape[0], self.lb.shape[0]+1))
@@ -101,28 +101,29 @@ class DeepPoly:
         # lower bound >= 0
         positive = torch.where(self.lb >= 0,torch.ones_like(self.lb, dtype=torch.bool), torch.zeros_like(self.lb, dtype=torch.bool))
         positive_mask = get_2d_mask(positive) # is 1 in columns having a positive lower bound, else 0
-        
+
         lc = torch.where(positive_mask, torch.cat((torch.unsqueeze(torch.zeros_like(self.lb), 1), torch.eye(self.lb.shape[0])), 1), lc)
         uc = torch.where(positive_mask, torch.cat((torch.unsqueeze(torch.zeros_like(self.lb), 1), torch.eye(self.lb.shape[0])), 1), uc)
 
         # lower bound < 0 and upper bound > 0
-        between = torch.where(torch.logical_and((self.lb < 0), (self.ub > 0)), torch.ones_like(self.lb, dtype=torch.bool), torch.zeros_like(self.lb, dtype=torch.bool)) 
+        between = torch.where(torch.logical_and((self.lb < 0), (self.ub > 0)), torch.ones_like(self.lb, dtype=torch.bool), torch.zeros_like(self.lb, dtype=torch.bool))
         between_mask = get_2d_mask(between) # is 1 in columns having negative lower bound and positive upper bound, else 0
         lc = torch.where(between_mask, torch.zeros((self.lb.shape[0], self.lb.shape[0]+1)), lc)
-        uc = torch.where(between_mask, torch.cat((torch.unsqueeze(torch.multiply(self.lb, slope), 1), torch.multiply(torch.eye(self.lb.shape[0]), slope)), 1), uc)
-        
-        
+        uc_bias = torch.where(torch.gt(torch.multiply(-self.lb, slope), self.ub), self.ub, torch.multiply(-self.lb, slope)) # clip bias to upper bound sth x <= self.ub
+        uc = torch.where(between_mask, torch.cat((torch.unsqueeze(uc_bias, 1), torch.multiply(torch.eye(self.lb.shape[0]), slope)), 1), uc)
+
+        assert (torch.greater_equal(lc,0)).all()
+        assert (torch.greater_equal(uc,0)).all()
         """Naive 2"""
         #lc = torch.cat((torch.zeros((self.lb.shape[0], 1)), torch.eye(self.lb.shape[0])), 1)
         """Alpha Relaxation"""
         # alpha = ..., element in [0, 1] (for leaky ReLU in [negative_slope, 1])
         # lc = torch.cat((torch.zeros((self.lb.shape[0], 1)), torch.multiply(torch.eye(self.lb.shape[0]), alpha)), 1)
 
-        
         lb, ub = get_bounds_from_conditional(self.lb, self.ub, lc, uc)
 
         return DeepPoly(lb, ub, lc, uc, self)
-    
+
     def propagate_leakyrelu(self, leakyrelu_layer: nn.LeakyReLU) -> 'DeepPoly':
         """
         NOT IMPLEMENTED YET
@@ -185,7 +186,6 @@ def check_postcondition(dp: 'DeepPoly', true_label: int) -> bool:
     lc = torch.cat((augment, torch.eye(dp.lc.shape[0])), 1)
 
     while dp.parent:
-
         # UPDATE RULE OF CONDITIONAL MATRICES
         #
         #                               |  1  0  0  .  .  .  0  |
@@ -251,7 +251,7 @@ def check_bounds(lb: torch.tensor, ub: torch.tensor, index: int) -> bool:
 
 
 def get_bounds_from_conditional(
-        lb: torch.tensor, ub: torch.tensor, lc: torch.tensor, uc: torch.tensor
+    lb: torch.tensor, ub: torch.tensor, lc: torch.tensor, uc: torch.tensor
 ) -> (torch.tensor, torch.tensor):
     """
     Calculates new bounds, based previous layer and the conditional bounds.
