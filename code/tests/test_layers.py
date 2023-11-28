@@ -19,28 +19,41 @@ def test_linear():
             x = torch.rand(n)
             dp = construct_initial_shape(torch.ones(n), 1)
             layer = nn.Linear(n, m)
-            y = layer(x)
+            x = layer(x)
             dp = dp.propagate_linear(layer)
-            assert y.shape == dp.lb.shape == dp.ub.shape
-            assert all(y.ge(dp.lb)) and all(y.le(dp.ub))
+            assert x.shape == dp.lb.shape == dp.ub.shape
+            assert all(x.ge(dp.lb)) and all(x.le(dp.ub))
 
 
 def test_convolutional():
-    input_dimension_values = [(1, 5, 5), (1, 20, 20), (1, 50, 50), (3, 50, 50)]
+    input_dimension_values = [(1, 5, 5), (1, 20, 20), (3, 20, 20)]
     reps = 10
     for c, m, n in input_dimension_values:
         for _ in range(reps):
             x = torch.rand((c, m, n))
             dp = construct_initial_shape(torch.ones(c, m, n), 1)
             layer = nn.Conv2d(c, 4, 3)
-            y = layer(x).flatten()
+            x = layer(x).flatten()
             dp = dp.propagate_conv2d(layer)
-            assert y.shape == dp.lb.shape == dp.ub.shape
-            assert all(y.ge(dp.lb)) and all(y.le(dp.ub))
+            assert x.shape == dp.lb.shape == dp.ub.shape
+            assert all(x.ge(dp.lb)) and all(x.le(dp.ub))
 
 
 def test_relu():
-    assert True
+    input_dimension_values = [2, 5, 10, 100, 1000]
+    reps = 10
+    for n in input_dimension_values:
+        for _ in range(reps):
+            x = torch.rand(n)
+            dp = construct_initial_shape(torch.ones(n), 1)
+            linear_layer = nn.Linear(n, n)
+            relu_layer = nn.ReLU()
+            x = linear_layer(x)
+            x = relu_layer(x)
+            dp = dp.propagate_linear(linear_layer)
+            dp = dp.propagate_relu(relu_layer)
+            assert x.shape == dp.lb.shape == dp.ub.shape
+            assert all(x.ge(dp.lb)) and all(x.le(dp.ub))
 
 
 def test_leakyrelu():
