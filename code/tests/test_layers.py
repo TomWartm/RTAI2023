@@ -57,4 +57,18 @@ def test_relu():
 
 
 def test_leakyrelu():
-    assert True
+    input_dimension_values = [2, 5, 10, 100, 1000]
+    alphas = [0.01, 0.1, 1, 5]
+    reps = 10
+    for alpha, n in product(alphas, input_dimension_values):
+        for _ in range(reps):
+            x = torch.rand(n)
+            dp = construct_initial_shape(torch.ones(n), 1)
+            linear_layer = nn.Linear(n, n)
+            leaky_relu_layer = nn.LeakyReLU(negative_slope=alpha)
+            x = linear_layer(x)
+            x = leaky_relu_layer(x)
+            dp = dp.propagate_linear(linear_layer)
+            dp = dp.propagate_leakyrelu(leaky_relu_layer)
+            assert x.shape == dp.lb.shape == dp.ub.shape
+            assert all(x.ge(dp.lb)) and all(x.le(dp.ub))
