@@ -26,7 +26,17 @@ def test_linear():
 
 
 def test_convolutional():
-    assert True
+    input_dimension_values = [(1, 5, 5), (1, 20, 20), (1, 50, 50), (3, 50, 50)]
+    reps = 10
+    for c, m, n in input_dimension_values:
+        for _ in range(reps):
+            x = torch.rand((c, m, n))
+            dp = construct_initial_shape(torch.ones(c, m, n), 1)
+            layer = nn.Conv2d(c, 4, 3)
+            y = layer(x).flatten()
+            dp = dp.propagate_conv2d(layer)
+            assert y.shape == dp.lb.shape == dp.ub.shape
+            assert all(y.ge(dp.lb)) and all(y.le(dp.ub))
 
 
 def test_relu():
