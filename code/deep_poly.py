@@ -114,7 +114,7 @@ class DeepPoly:
         if leakyrelu_layer:
             negative_slope = leakyrelu_layer.negative_slope # [0,3]
         else:
-            negative_slope = alpha
+            negative_slope = 0
 
         # upper bounds =< 0
         lc = torch.cat((torch.unsqueeze(torch.zeros(self.lb.shape[0]), 1), torch.multiply(torch.eye(self.lb.shape[0]), negative_slope)), dim=1)
@@ -132,22 +132,29 @@ class DeepPoly:
         between_mask = get_2d_mask(between)  # is 1 in columns having negative lower bound and positive upper bound, else 0
 
         # here lc could be bigger then uc ??? TODO take min of both slopes i.e. negative_slope, slope
-        negative_slope = torch.where(negative_slope < slope, negative_slope, slope)
-        lc_between = torch.cat((torch.unsqueeze(torch.zeros(self.lb.shape[0]), 1), torch.multiply(torch.eye(self.lb.shape[0]), negative_slope)), 1)
-        lc = torch.where(between_mask, lc_between, lc)
 
-        uc_between = torch.cat((torch.unsqueeze(torch.multiply(self.lb, -slope), 1), torch.multiply(torch.eye(self.lb.shape[0]), slope)), 1)
-        uc = torch.where(between_mask, uc_between, uc)
+
+        # TODO: case1: negative slope <1
+        # lowerbound=  * alpha through 0, fix upperbound = slope
+        m = torch.divide(torch.subtract(torch.multiply(negative_slope, self.lb),self.ub), torch.subtract(self.lb,self.ub))
+        q = torch.neg(torch.divide(torch.multiply(torch.multiply(self.lb, negative_slope-1),self.ub),torch.subtract(self.lb,self.ub)))
+        if negative_slope <= 1:
+            uc = torch.where(between_mask,torch.cat((torch.unsqueeze(q, 1), torch.multiply(torch.eye(self.lb.shape[0]), m)), 1) , uc)
+            lc = torch.where(between_mask,torch.cat((torch.unsqueeze(torch.zeros(self.lb.shape[0]), 1), torch.multiply(torch.eye(self.lb.shape[0]), alpha * negative_slope + (1-alpha)*1)), 1) , lc)
+
+        else:
+            uc = torch.where(between_mask,torch.cat((torch.unsqueeze(torch.zeros(self.lb.shape[0]), 1), torch.multiply(torch.eye(self.lb.shape[0]), alpha * negative_slope + (1-alpha)*1)), 1) , uc)
+            lc = torch.where(between_mask,torch.cat((torch.unsqueeze(q, 1), torch.multiply(torch.eye(self.lb.shape[0]), m)), 1) , lc)
+        # TODO: case2: negative slope > 1
+        # upperbound = * alpha through 0, fix lowerbound = (negative_slope)
+
 
         lb, ub = get_bounds_from_conditional(self.lb, self.ub, lc, uc)
-
+        
 
         assert torch.greater_equal(ub, lb).all()
 
-        if negative_slope ==0:
-            assert torch.greater_equal(ub, 0).all()
-            assert torch.greater_equal(ub, lb).all()
-            assert torch.less_equal(torch.subtract(ub,lb), torch.subtract(self.ub, self.lb)).all(), "Bounds are not tighter after ReLu"
+
 
         return DeepPoly(lb, ub, lc, uc, self, True)
 
@@ -205,10 +212,10 @@ def check_postcondition(dp: 'DeepPoly', true_label: int) -> bool:
         
 
         if dp.is_relu:
-
+            
             assert dp.lb.shape == dp.parent.lb.shape # shape doesn' change in ReLu
             #assert torch.less_equal(torch.subtract(dp.ub, dp.lb), torch.subtract(dp.parent.ub, dp.parent.lb)).all() # assert Relu making bunds tighter
-
+            
         if check_bounds(lb, ub, true_label):
             return True
         dp = dp.parent
@@ -274,20 +281,20 @@ def get_bounds_from_conditional(
     :param uc:  Conditional upper bounds if this layer
     :return:    Lower and upper of this layer
     """
-
+    
     assert torch.greater_equal(ub, lb).all()
     augmented_lb = torch.cat((torch.tensor([1]), lb), 0)
     augmented_ub = torch.cat((torch.tensor([1]), ub), 0)
     new_lb = []
     new_ub = []
-
+    
     for row in lc:
         vec = torch.where(row > 0, augmented_lb, augmented_ub)
         new_lb.append(torch.dot(row, vec))
     for row in uc:
         vec = torch.where(row > 0, augmented_ub, augmented_lb)
         new_ub.append(torch.dot(row, vec))
-
+    
     new_lb = torch.tensor(new_lb)
     new_ub = torch.tensor(new_ub)
 
@@ -336,11 +343,11 @@ def backsubstitute(dp: "DeepPoly"):
         augmented_uc = torch.cat((e, dp.uc), 0)
         augmented_lc = torch.cat((e, dp.lc), 0)
 
-        # TODO: for upper conditional multiply with lower conditional of parent if parameter of this is negative
+        # for upper conditional multiply with lower conditional of parent if parameter of this is negative
         new_lc = []
         for row in lc:
             positive_param = row >= 0
-
+            
             positive_mask = torch.transpose(positive_param.repeat(positive_param.shape[0]).reshape(positive_param.shape[0],positive_param.shape[0]),0,1) # in all rows true where param in column was positive
 
             parent_conditional = torch.where(positive_mask, augmented_lc, augmented_uc)
@@ -364,7 +371,7 @@ def backsubstitute(dp: "DeepPoly"):
 
     lb, ub = get_bounds_from_conditional(dp.lb, dp.ub, lc, uc)
 
-
+    
     # check if bounds are tighter
 
     #assert torch.greater_equal(lb, current_dp.lb).all()
