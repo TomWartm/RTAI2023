@@ -4,7 +4,7 @@ import torch
 from networks import get_network
 from utils.loading import parse_spec
 
-from deep_poly import construct_initial_shape, check_postcondition
+from deep_poly import construct_initial_shape, check_postcondition, backsubstitute
 from torch import nn
 
 DEVICE = "cpu"
@@ -23,6 +23,7 @@ def analyze(
     :return:    True if NN can be verified with perpetuation, False if not.
     """
     dp = construct_initial_shape(inputs, eps)
+    prev_layer = None
     for layer in net:
         if isinstance(layer, nn.Linear):
             dp = dp.propagate_linear(layer)
@@ -35,7 +36,14 @@ def analyze(
         elif isinstance(layer, nn.Flatten):
             dp = dp.propagate_flatten()
         else:
-            raise NotImplementedError(f'Unsupported layer type: {type(layer)}')
+            raise NotImplementedError(f"Unsupported layer type: {type(layer)}")
+
+        if isinstance(prev_layer, nn.ReLU):
+            # TODO: implement backsubstitution
+            backsubstitute(dp)
+            pass
+        prev_layer = layer
+
     return check_postcondition(dp, true_label)
 
 
@@ -60,6 +68,7 @@ def main():
             "conv_2",
             "conv_3",
             "conv_4",
+            "test_1",
         ],
         required=True,
         help="Neural network architecture which is supposed to be verified.",

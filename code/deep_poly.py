@@ -1,12 +1,11 @@
 from torch import nn
 import torch
-from typing import Optional
+from typing import Optional, Union
 from conv_to_fc import conv_to_fc
 import numpy as np
 
-
 def get_2d_mask(x):
-        # repeats x len(x)+1 times 
+        # repeats x len(x)+1 times
         # tensor([0,1]) -> tensor([[0, 0, 0],
         #                          [1, 1, 1]])
         return torch.transpose(x.repeat(x.shape[0]+1).reshape(x.shape[0]+1,x.shape[0]),0,1)
@@ -17,6 +16,7 @@ class DeepPoly:
     The whole NN can be represented as a linked list of DeepPoly objects.
     """
 
+
     def __init__(
         self,
         lb: torch.Tensor,
@@ -24,14 +24,16 @@ class DeepPoly:
         lc: torch.Tensor,
         uc: torch.Tensor,
         parent: Optional["DeepPoly"],
+        is_relu: bool = False,
     ):
         self.lb = lb
         self.ub = ub
         self.lc = lc
         self.uc = uc
         self.parent = parent
+        self.is_relu = is_relu
 
-    def propagate_linear(self, linear_layer: nn.Linear) -> 'DeepPoly':
+    def propagate_linear(self, linear_layer: nn.Linear) -> "DeepPoly":
         """
         Append new DeepPoly for a linear layer
 
@@ -45,7 +47,7 @@ class DeepPoly:
 
         return DeepPoly(lb, ub, lc, uc, self)
 
-    def propagate_conv2d(self, conv_layer: nn.Conv2d) -> 'DeepPoly':
+    def propagate_conv2d(self, conv_layer: nn.Conv2d) -> "DeepPoly":
         """
         Generate DeepPoly for a convolutional layer
 
@@ -105,8 +107,10 @@ class DeepPoly:
         :param alpha:   Negative Slope for "non-leaky" ReLU layers of same shape as lb
         :return:    DeepPoly for that Layer
         """
+        between = torch.where(torch.logical_and((self.lb < 0), (self.ub > 0)), torch.ones_like(self.lb, dtype=torch.bool), torch.zeros_like(self.lb, dtype=torch.bool))
 
-        slope = torch.divide(self.ub, (self.ub - self.lb))
+        slope = torch.where(between, torch.divide(self.ub, torch.subtract(self.ub, self.lb)), torch.zeros_like(self.lb)) # only used for in between case i.e. sellf. lv < 0 and self.ub > 0 -> slope >= 0
+
 
         if leakyrelu_layer:
             negative_slope = leakyrelu_layer.negative_slope
@@ -118,24 +122,31 @@ class DeepPoly:
         uc = torch.cat((torch.zeros((self.lb.shape[0]), 1), torch.multiply(torch.eye(self.lb.shape[0]), negative_slope)), dim=1)
 
         # lower bound >= 0
-        positive = torch.where(self.lb >= 0, torch.ones_like(self.lb, dtype=torch.bool), torch.zeros_like(self.lb, dtype=torch.bool))
+        positive = torch.where(self.lb > 0, torch.ones_like(self.lb, dtype=torch.bool), torch.zeros_like(self.lb, dtype=torch.bool))
         positive_mask = get_2d_mask(positive)  # is 1 in columns having a positive lower bound, else 0
 
         lc = torch.where(positive_mask, torch.cat((torch.unsqueeze(torch.zeros_like(self.lb), 1), torch.eye(self.lb.shape[0])), 1), lc)
         uc = torch.where(positive_mask, torch.cat((torch.unsqueeze(torch.zeros_like(self.lb), 1), torch.eye(self.lb.shape[0])), 1), uc)
 
         # lower bound < 0 and upper bound > 0
-        between = torch.where(torch.logical_and((self.lb < 0), (self.ub > 0)), torch.ones_like(self.lb, dtype=torch.bool), torch.zeros_like(self.lb, dtype=torch.bool))
-        between_mask = get_2d_mask(between)  # is 1 in columns having negative lower bound and positive upper bound, else 0
-        # lc = torch.where(between_mask, torch.cat((torch.unsqueeze(torch.zeros(self.lb.shape[0]), 1), torch.multiply(torch.eye(self.lb.shape[0]), negative_slope)), 1), lc)
-        uc = torch.where(between_mask, torch.cat((torch.unsqueeze(torch.multiply(self.lb, slope), 1), torch.multiply(torch.eye(self.lb.shape[0]), slope)), 1), uc)
 
-        
+        between_mask = get_2d_mask(between)  # is 1 in columns having negative lower bound and positive upper bound, else 0
+        lc_between = torch.cat((torch.unsqueeze(torch.zeros(self.lb.shape[0]), 1), torch.multiply(torch.eye(self.lb.shape[0]), negative_slope)), 1)
+        lc = torch.where(between_mask, lc_between, lc)
+
+        uc_between = torch.cat((torch.unsqueeze(torch.multiply(self.lb, -slope), 1), torch.multiply(torch.eye(self.lb.shape[0]), slope)), 1)
+        uc = torch.where(between_mask, uc_between, uc)
+
         lb, ub = get_bounds_from_conditional(self.lb, self.ub, lc, uc)
 
-        return DeepPoly(lb, ub, lc, uc, self)
+        if negative_slope ==0:
+            assert torch.greater_equal(ub, 0).all()
+            assert torch.greater_equal(ub, lb).all()
+            assert torch.less_equal(torch.subtract(ub,lb), torch.subtract(self.ub, self.lb)).all(), "Bounds are not tighter after ReLu"
 
-    def propagate_flatten(self) -> 'DeepPoly':
+        return DeepPoly(lb, ub, lc, uc, self, True)
+
+    def propagate_flatten(self) -> "DeepPoly":
         """
         NOT IMPLEMENTED YET
         Generate DeepPoly for a flatten call on NN
@@ -170,7 +181,6 @@ def check_postcondition(dp: 'DeepPoly', true_label: int) -> bool:
     lc = torch.cat((augment, torch.eye(dp.lc.shape[0])), 1)
 
     while dp.parent:
-
         # UPDATE RULE OF CONDITIONAL MATRICES
         #
         #                               |  1  0  0  .  .  .  0  |
@@ -186,7 +196,13 @@ def check_postcondition(dp: 'DeepPoly', true_label: int) -> bool:
         uc = torch.matmul(uc, augmented_uc)
         lc = torch.matmul(lc, augmented_lc)
 
-        lb, ub = get_bounds_from_conditional(dp.parent.lb, dp.parent.ub, lc, uc)
+        lb, ub = get_bounds_from_conditional(dp.parent.lb, dp.parent.ub, lc, uc) # lb, ub are projections of bounds to output dimensions
+
+
+        if dp.is_relu:
+
+            assert dp.lb.shape == dp.parent.lb.shape # shape doesn' change in ReLu
+            #assert torch.less_equal(torch.subtract(dp.ub, dp.lb), torch.subtract(dp.parent.ub, dp.parent.lb)).all() # assert Relu making bunds tighter
 
         if check_bounds(lb, ub, true_label):
             return True
@@ -208,6 +224,12 @@ def construct_initial_shape(x: torch.Tensor, eps: float) -> 'DeepPoly':
 
     ub = x + eps
     ub.clamp_(min=0, max=1)
+
+
+    # special case for test
+    if eps == 1:
+        lb = x - eps
+        ub = x + eps
 
     ub = torch.flatten(ub)
     lb = torch.flatten(lb)
@@ -231,7 +253,7 @@ def check_bounds(lb: torch.tensor, ub: torch.tensor, index: int) -> bool:
     assert (lb.ndim == 1) and (ub.ndim == 1)
     assert (index < len(lb)) and (index < len(ub))
     bounds = ub
-    bounds[index] = lb[index] 
+    bounds[index] = lb[index]
     return torch.argmax(bounds) == index
 
 
@@ -247,10 +269,13 @@ def get_bounds_from_conditional(
     :param uc:  Conditional upper bounds if this layer
     :return:    Lower and upper of this layer
     """
+
+    assert torch.greater_equal(ub, lb).all()
     augmented_lb = torch.cat((torch.tensor([1]), lb), 0)
     augmented_ub = torch.cat((torch.tensor([1]), ub), 0)
     new_lb = []
     new_ub = []
+
     for row in lc:
         vec = torch.where(row > 0, augmented_lb, augmented_ub)
         new_lb.append(torch.dot(row, vec))
@@ -258,4 +283,88 @@ def get_bounds_from_conditional(
         vec = torch.where(row > 0, augmented_ub, augmented_lb)
         new_ub.append(torch.dot(row, vec))
 
-    return torch.tensor(new_lb), torch.tensor(new_ub)
+    new_lb = torch.tensor(new_lb)
+    new_ub = torch.tensor(new_ub)
+
+    #assert torch.greater_equal(new_ub, new_lb).all() #why doesn´t this pass?
+
+
+    return new_lb, new_ub
+
+
+
+def backsubstitute(dp: "DeepPoly"):
+    """
+    Tigthen lb and ub of dp by backsubstituting . This is called after each ReLu layer
+
+
+    Multiply current ub with previos ub and lastly get_bounds from conditional of last layer
+    """
+    # INITIALIZATION
+    #
+    #               | 0  1  0  0  .  .  .  0  |
+    #               | 0  0  1  0  .  .  .  0  |
+    #               | 0  0  0  1  .  .  .  0  |
+    # uc  =  lc  =  | .  .  .  .  .        .  |
+    #               | .  .  .  .     .     .  |
+    #               | .  .  .  .        .  .  |
+    #               | 0  0  0  0  .  .  .  1  |
+
+    augment = torch.zeros(dp.uc.shape[0])
+    augment = torch.unsqueeze(augment, 1)
+    uc = torch.cat((augment, torch.eye(dp.uc.shape[0])), 1)
+    lc = torch.cat((augment, torch.eye(dp.lc.shape[0])), 1)
+
+    current_dp = dp
+
+    while dp.parent:
+        # UPDATE RULE OF CONDITIONAL MATRICES
+        #
+        #                               |  1  0  0  .  .  .  0  |
+        #                               |                       |
+        # CONDITIONAL = CONDITIONAL  X  |   PARENT CONDITIONAL  |
+        #                               |                       |
+
+        e = torch.zeros(dp.uc.shape)[1]
+        e[0] = 1
+        e = torch.unsqueeze(e, 0)
+        augmented_uc = torch.cat((e, dp.uc), 0)
+        augmented_lc = torch.cat((e, dp.lc), 0)
+
+        # TODO: for upper conditional multiply with lower conditional of parent if parameter of this is negative
+        new_lc = []
+        for row in lc:
+            positive_param = row >= 0
+
+            positive_mask = torch.transpose(positive_param.repeat(positive_param.shape[0]).reshape(positive_param.shape[0],positive_param.shape[0]),0,1) # in all rows true where param in column was positive
+
+            parent_conditional = torch.where(positive_mask, augmented_lc, augmented_uc)
+            new_row = torch.matmul(row, parent_conditional)
+            new_lc.append(new_row)
+
+        new_uc = []
+        for row in uc:
+            positive_param = row > 0
+            positive_mask = torch.transpose(positive_param.repeat(positive_param.shape[0]).reshape(positive_param.shape[0],positive_param.shape[0]),0,1) # in all rows true where param in column was positive
+
+            parent_conditional = torch.where(positive_mask, augmented_uc, augmented_lc)
+            new_row = torch.matmul(row, parent_conditional)
+            new_uc.append(new_row)
+
+        lc = torch.stack(new_lc)
+        uc = torch.stack(new_uc)
+
+        dp = dp.parent
+
+
+    lb, ub = get_bounds_from_conditional(dp.lb, dp.ub, lc, uc)
+
+
+    # check if bounds are tighter
+
+    #assert torch.greater_equal(lb, current_dp.lb).all()
+    #assert torch.less_equal(ub, current_dp.ub).all()
+
+    # update bounds
+    current_dp.lb = lb
+    current_dp.ub = ub
