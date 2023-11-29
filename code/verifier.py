@@ -39,8 +39,8 @@ def analyze(
             raise NotImplementedError(f"Unsupported layer type: {type(layer)}")
 
         if isinstance(prev_layer, nn.ReLU):
-            # TODO: implement backsubstitution
-            backsubstitute(dp)
+            # TODO: implement backsubstitution only unil last backsubstituted layer, i.e. no need to do the entier net again
+            #backsubstitute(dp)
             pass
         prev_layer = layer
 

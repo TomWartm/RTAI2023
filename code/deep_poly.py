@@ -97,7 +97,7 @@ class DeepPoly:
         # alpha = 1 -> Naive 2
         # alpha \in [0, 1]^n, alpha relaxation
         return self.propagate_leakyrelu(None, alpha=0)
-
+    
     def propagate_leakyrelu(self, leakyrelu_layer: Optional['nn.LeakyReLU'], alpha: Union[float, 'torch.tensor'] = 0) -> 'DeepPoly':
         """
         NOT IMPLEMENTED YET
@@ -107,13 +107,12 @@ class DeepPoly:
         :param alpha:   Negative Slope for "non-leaky" ReLU layers of same shape as lb
         :return:    DeepPoly for that Layer
         """
-        between = torch.where(torch.logical_and((self.lb < 0), (self.ub > 0)), torch.ones_like(self.lb, dtype=torch.bool), torch.zeros_like(self.lb, dtype=torch.bool))
 
-        slope = torch.where(between, torch.divide(self.ub, torch.subtract(self.ub, self.lb)), torch.zeros_like(self.lb)) # only used for in between case i.e. sellf. lv < 0 and self.ub > 0 -> slope >= 0
-
+        slope = torch.divide(self.ub, torch.subtract(self.ub, self.lb)) # only used for in between case i.e. sellf. lv < 0 and self.ub > 0 -> slope >= 0
+        
 
         if leakyrelu_layer:
-            negative_slope = leakyrelu_layer.negative_slope
+            negative_slope = leakyrelu_layer.negative_slope # [0,3]
         else:
             negative_slope = alpha
 
@@ -129,8 +128,11 @@ class DeepPoly:
         uc = torch.where(positive_mask, torch.cat((torch.unsqueeze(torch.zeros_like(self.lb), 1), torch.eye(self.lb.shape[0])), 1), uc)
 
         # lower bound < 0 and upper bound > 0
-
+        between = torch.where(torch.logical_and((self.lb < 0), (self.ub > 0)), torch.ones_like(self.lb, dtype=torch.bool), torch.zeros_like(self.lb, dtype=torch.bool))
         between_mask = get_2d_mask(between)  # is 1 in columns having negative lower bound and positive upper bound, else 0
+
+        # here lc could be bigger then uc ??? TODO take min of both slopes i.e. negative_slope, slope
+        negative_slope = torch.where(negative_slope < slope, negative_slope, slope)
         lc_between = torch.cat((torch.unsqueeze(torch.zeros(self.lb.shape[0]), 1), torch.multiply(torch.eye(self.lb.shape[0]), negative_slope)), 1)
         lc = torch.where(between_mask, lc_between, lc)
 
@@ -138,6 +140,9 @@ class DeepPoly:
         uc = torch.where(between_mask, uc_between, uc)
 
         lb, ub = get_bounds_from_conditional(self.lb, self.ub, lc, uc)
+
+
+        assert torch.greater_equal(ub, lb).all()
 
         if negative_slope ==0:
             assert torch.greater_equal(ub, 0).all()
@@ -197,7 +202,7 @@ def check_postcondition(dp: 'DeepPoly', true_label: int) -> bool:
         lc = torch.matmul(lc, augmented_lc)
 
         lb, ub = get_bounds_from_conditional(dp.parent.lb, dp.parent.ub, lc, uc) # lb, ub are projections of bounds to output dimensions
-
+        
 
         if dp.is_relu:
 
