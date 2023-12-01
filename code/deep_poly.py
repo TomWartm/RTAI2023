@@ -23,16 +23,14 @@ class DeepPoly:
         ub: torch.Tensor,
         lc: torch.Tensor,
         uc: torch.Tensor,
-        parent: Optional["DeepPoly"],
-        is_relu: bool = False,
+        parent: Optional["DeepPoly"]
     ):
         self.lb = lb
         self.ub = ub
         self.lc = lc
         self.uc = uc
         self.parent = parent
-        self.is_relu = is_relu
-
+        
     def propagate_linear(self, linear_layer: nn.Linear) -> "DeepPoly":
         """
         Append new DeepPoly for a linear layer
@@ -155,7 +153,7 @@ class DeepPoly:
 
 
 
-        return DeepPoly(lb, ub, lc, uc, self, True)
+        return DeepPoly(lb, ub, lc, uc, self)
 
     def propagate_flatten(self) -> "DeepPoly":
         """
@@ -166,6 +164,30 @@ class DeepPoly:
         """
         return self
 
+    def propagate_final(self, true_label) -> 'DeepPoly':
+        # if 2 is true_label
+        #               | 0  1  0  -1  .  .  .  0  |
+        #               | 0  0  1  -1  .  .  .  0  |
+        #               | 0  0  0  1-1  .  .  .  0  |
+        # uc  =  lc  =  | .  .  .  .  .        .  |
+        #               | .  .  .  .     .     .  |
+        #               | .  .  .  .        .  .  |
+        #               | 0  0  0  -1  .  .  .  1  |
+
+
+
+        augment = torch.zeros(self.uc.shape[0])
+        augment = torch.unsqueeze(augment, 1)
+        uc = torch.cat((augment, torch.eye(self.uc.shape[0])), 1)
+        lc = torch.cat((augment, torch.eye(self.lc.shape[0])), 1) 
+
+        neg_one = torch.zeros(uc.shape)
+        neg_one[:,true_label+1] = -1
+
+        uc = torch.add(uc, neg_one)
+        lc = torch.add(lc, neg_one)
+
+        return DeepPoly(self.lb, self.ub, lc, uc, self)
 
 def check_postcondition(dp: 'DeepPoly', true_label: int) -> bool:
     """
@@ -210,11 +232,7 @@ def check_postcondition(dp: 'DeepPoly', true_label: int) -> bool:
         lb, ub = get_bounds_from_conditional(dp.parent.lb, dp.parent.ub, lc, uc) # lb, ub are projections of bounds to output dimensions
         
 
-        if dp.is_relu:
-            
-            assert dp.lb.shape == dp.parent.lb.shape # shape doesn' change in ReLu
-            #assert torch.less_equal(torch.subtract(dp.ub, dp.lb), torch.subtract(dp.parent.ub, dp.parent.lb)).all() # assert Relu making bunds tighter
-            
+        
         if check_bounds(lb, ub, true_label):
             return True
         dp = dp.parent
@@ -328,7 +346,7 @@ def backsubstitute(dp: "DeepPoly", backprop_counter: int):
 
     current_dp = dp
 
-    while backprop_counter >0:
+    while backprop_counter > 0:
         backprop_counter -= 1
         # UPDATE RULE OF CONDITIONAL MATRICES
         #
@@ -342,7 +360,7 @@ def backsubstitute(dp: "DeepPoly", backprop_counter: int):
         e = torch.unsqueeze(e, 0)
         augmented_uc = torch.cat((e, dp.uc), 0) # parent
         augmented_lc = torch.cat((e, dp.lc), 0)
-
+        
         # for upper conditional multiply with lower conditional of parent if parameter of this is negative
         new_lc = []
         for row in lc:
@@ -353,7 +371,7 @@ def backsubstitute(dp: "DeepPoly", backprop_counter: int):
             parent_conditional = torch.where(positive_mask, augmented_lc, augmented_uc)
             new_row = torch.matmul(row, parent_conditional)
             new_lc.append(new_row)
-
+        
         new_uc = []
         for row in uc:
             positive_param = row > 0
@@ -363,9 +381,13 @@ def backsubstitute(dp: "DeepPoly", backprop_counter: int):
             new_row = torch.matmul(row, parent_conditional)
             new_uc.append(new_row)
 
+        
         lc = torch.stack(new_lc)
         uc = torch.stack(new_uc)
+        
 
+        #uc = torch.matmul(uc, augmented_uc)
+        #lc = torch.matmul(lc, augmented_lc)
         dp = dp.parent
 
 

@@ -4,7 +4,7 @@ import torch
 from networks import get_network
 from utils.loading import parse_spec
 
-from deep_poly import construct_initial_shape, check_postcondition, backsubstitute
+from deep_poly import construct_initial_shape, check_postcondition, backsubstitute, check_bounds
 from torch import nn
 
 DEVICE = "cpu"
@@ -48,9 +48,12 @@ def analyze(
             # TODO: implement backsubstitution only unil last backsubstituted layer, i.e. no need to do the entier net again
             backsubstitute(dp, counter)
             counter = 0
-            pass
+            
         prev_layer = layer
 
+    dp = dp.propagate_final(true_label)
+    counter += 1
+    backsubstitute(dp, counter)
     return check_postcondition(dp, true_label)
 
 
