@@ -44,7 +44,7 @@ def analyze(
         else:
             raise NotImplementedError(f"Unsupported layer type: {type(layer)}")
 
-        if isinstance(prev_layer, nn.ReLU):
+        if isinstance(prev_layer, nn.ReLU) or isinstance(prev_layer, nn.LeakyReLU):
             # TODO: implement backsubstitution only unil last backsubstituted layer, i.e. no need to do the entier net again
             backsubstitute(dp, counter)
             counter = 0

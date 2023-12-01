@@ -130,8 +130,7 @@ class DeepPoly:
         between_mask = get_2d_mask(between)  # is 1 in columns having negative lower bound and positive upper bound, else 0
 
 
-        # TODO: case1: negative slope <1
-        # lowerbound=  * alpha through 0, fix upperbound = slope
+        # case1: negative slope <1
         m = torch.divide(torch.subtract(torch.multiply(negative_slope, self.lb), self.ub), torch.subtract(self.lb, self.ub))
         q = torch.neg(torch.divide(torch.multiply(torch.multiply(self.lb, torch.subtract(negative_slope,1)),self.ub),torch.subtract(self.lb,self.ub)))
         assert torch.logical_or(torch.logical_not(between), torch.greater_equal(m,0)).all(), "slope should be positive in between case"
@@ -139,11 +138,11 @@ class DeepPoly:
             uc = torch.where(between_mask,torch.cat((torch.unsqueeze(q, 1), torch.multiply(torch.eye(self.lb.shape[0]), m)), 1) , uc)
             lc = torch.where(between_mask,torch.cat((torch.unsqueeze(torch.zeros(self.lb.shape[0]), 1), torch.multiply(torch.eye(self.lb.shape[0]), alpha * negative_slope + (1-alpha)*1)), 1) , lc)
         
+        # case2: negative slope > 1
         else:
             uc = torch.where(between_mask,torch.cat((torch.unsqueeze(torch.zeros(self.lb.shape[0]), 1), torch.multiply(torch.eye(self.lb.shape[0]), alpha * negative_slope + (1-alpha)*1 )), 1) , uc)
             lc = torch.where(between_mask,torch.cat((torch.unsqueeze(q, 1), torch.multiply(torch.eye(self.lb.shape[0]), m)), 1) , lc)
-        # TODO: case2: negative slope > 1
-        # upperbound = * alpha through 0, fix lowerbound = (negative_slope)
+        
 
 
         lb, ub = get_bounds_from_conditional(self.lb, self.ub, lc, uc)
@@ -386,19 +385,14 @@ def backsubstitute(dp: "DeepPoly", backprop_counter: int):
         uc = torch.stack(new_uc)
         
 
-        #uc = torch.matmul(uc, augmented_uc)
-        #lc = torch.matmul(lc, augmented_lc)
+
         dp = dp.parent
 
 
     lb, ub = get_bounds_from_conditional(dp.lb, dp.ub, lc, uc)
 
     
-    # check if bounds are tighter
-
-    #assert torch.greater_equal(lb, current_dp.lb).all()
-    #assert torch.less_equal(ub, current_dp.ub).all()
 
     # update bounds
-    current_dp.lb = lb
-    current_dp.ub = ub
+    current_dp.lb = torch.where(lb> current_dp.lb, lb, current_dp.lb)
+    current_dp.ub = torch.where(ub < current_dp.ub, ub, current_dp.ub)
