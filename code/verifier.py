@@ -22,17 +22,23 @@ def analyze(
     :true_label:    Correct OutPut label, the NN should generate
     :return:    True if NN can be verified with perpetuation, False if not.
     """
+    
     dp = construct_initial_shape(inputs, eps)
     prev_layer = None
+    counter = 0
     for layer in net:
         if isinstance(layer, nn.Linear):
             dp = dp.propagate_linear(layer)
+            counter +=1
         elif isinstance(layer, nn.ReLU):
             dp = dp.propagate_relu(layer)
+            counter +=1
         elif isinstance(layer, nn.LeakyReLU):
             dp = dp.propagate_leakyrelu(layer)
+            counter +=1
         elif isinstance(layer, nn.Conv2d):
             dp = dp.propagate_conv2d(layer)
+            counter +=1
         elif isinstance(layer, nn.Flatten):
             dp = dp.propagate_flatten()
         else:
@@ -40,7 +46,8 @@ def analyze(
 
         if isinstance(prev_layer, nn.ReLU):
             # TODO: implement backsubstitution only unil last backsubstituted layer, i.e. no need to do the entier net again
-            #backsubstitute(dp)
+            backsubstitute(dp, counter)
+            counter = 0
             pass
         prev_layer = layer
 

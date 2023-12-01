@@ -96,7 +96,7 @@ class DeepPoly:
         # alpha = 0 -> Naive 1
         # alpha = 1 -> Naive 2
         # alpha \in [0, 1]^n, alpha relaxation
-        return self.propagate_leakyrelu(None, alpha=0)
+        return self.propagate_leakyrelu(None, alpha=1)
     
     def propagate_leakyrelu(self, leakyrelu_layer: Optional['nn.LeakyReLU'], alpha: Union[float, 'torch.tensor'] = 0) -> 'DeepPoly':
         """
@@ -107,7 +107,7 @@ class DeepPoly:
         :param alpha:   Negative Slope for "non-leaky" ReLU layers of same shape as lb
         :return:    DeepPoly for that Layer
         """
-
+        
         slope = torch.divide(self.ub, torch.subtract(self.ub, self.lb)) # only used for in between case i.e. sellf. lv < 0 and self.ub > 0 -> slope >= 0
         
 
@@ -118,7 +118,7 @@ class DeepPoly:
 
         # upper bounds =< 0
         lc = torch.cat((torch.unsqueeze(torch.zeros(self.lb.shape[0]), 1), torch.multiply(torch.eye(self.lb.shape[0]), negative_slope)), dim=1)
-        uc = torch.cat((torch.zeros((self.lb.shape[0]), 1), torch.multiply(torch.eye(self.lb.shape[0]), negative_slope)), dim=1)
+        uc = torch.cat((torch.unsqueeze(torch.zeros(self.lb.shape[0]), 1), torch.multiply(torch.eye(self.lb.shape[0]), negative_slope)), dim=1)
 
         # lower bound >= 0
         positive = torch.where(self.lb > 0, torch.ones_like(self.lb, dtype=torch.bool), torch.zeros_like(self.lb, dtype=torch.bool))
@@ -131,19 +131,18 @@ class DeepPoly:
         between = torch.where(torch.logical_and((self.lb < 0), (self.ub > 0)), torch.ones_like(self.lb, dtype=torch.bool), torch.zeros_like(self.lb, dtype=torch.bool))
         between_mask = get_2d_mask(between)  # is 1 in columns having negative lower bound and positive upper bound, else 0
 
-        # here lc could be bigger then uc ??? TODO take min of both slopes i.e. negative_slope, slope
-
 
         # TODO: case1: negative slope <1
         # lowerbound=  * alpha through 0, fix upperbound = slope
-        m = torch.divide(torch.subtract(torch.multiply(negative_slope, self.lb),self.ub), torch.subtract(self.lb,self.ub))
-        q = torch.neg(torch.divide(torch.multiply(torch.multiply(self.lb, negative_slope-1),self.ub),torch.subtract(self.lb,self.ub)))
+        m = torch.divide(torch.subtract(torch.multiply(negative_slope, self.lb), self.ub), torch.subtract(self.lb, self.ub))
+        q = torch.neg(torch.divide(torch.multiply(torch.multiply(self.lb, torch.subtract(negative_slope,1)),self.ub),torch.subtract(self.lb,self.ub)))
+        assert torch.logical_or(torch.logical_not(between), torch.greater_equal(m,0)).all(), "slope should be positive in between case"
         if negative_slope <= 1:
             uc = torch.where(between_mask,torch.cat((torch.unsqueeze(q, 1), torch.multiply(torch.eye(self.lb.shape[0]), m)), 1) , uc)
             lc = torch.where(between_mask,torch.cat((torch.unsqueeze(torch.zeros(self.lb.shape[0]), 1), torch.multiply(torch.eye(self.lb.shape[0]), alpha * negative_slope + (1-alpha)*1)), 1) , lc)
-
+        
         else:
-            uc = torch.where(between_mask,torch.cat((torch.unsqueeze(torch.zeros(self.lb.shape[0]), 1), torch.multiply(torch.eye(self.lb.shape[0]), alpha * negative_slope + (1-alpha)*1)), 1) , uc)
+            uc = torch.where(between_mask,torch.cat((torch.unsqueeze(torch.zeros(self.lb.shape[0]), 1), torch.multiply(torch.eye(self.lb.shape[0]), alpha * negative_slope + (1-alpha)*1 )), 1) , uc)
             lc = torch.where(between_mask,torch.cat((torch.unsqueeze(q, 1), torch.multiply(torch.eye(self.lb.shape[0]), m)), 1) , lc)
         # TODO: case2: negative slope > 1
         # upperbound = * alpha through 0, fix lowerbound = (negative_slope)
@@ -305,7 +304,7 @@ def get_bounds_from_conditional(
 
 
 
-def backsubstitute(dp: "DeepPoly"):
+def backsubstitute(dp: "DeepPoly", backprop_counter: int):
     """
     Tigthen lb and ub of dp by backsubstituting . This is called after each ReLu layer
 
@@ -329,7 +328,8 @@ def backsubstitute(dp: "DeepPoly"):
 
     current_dp = dp
 
-    while dp.parent:
+    while backprop_counter >0:
+        backprop_counter -= 1
         # UPDATE RULE OF CONDITIONAL MATRICES
         #
         #                               |  1  0  0  .  .  .  0  |
@@ -340,15 +340,15 @@ def backsubstitute(dp: "DeepPoly"):
         e = torch.zeros(dp.uc.shape)[1]
         e[0] = 1
         e = torch.unsqueeze(e, 0)
-        augmented_uc = torch.cat((e, dp.uc), 0)
+        augmented_uc = torch.cat((e, dp.uc), 0) # parent
         augmented_lc = torch.cat((e, dp.lc), 0)
 
         # for upper conditional multiply with lower conditional of parent if parameter of this is negative
         new_lc = []
         for row in lc:
             positive_param = row >= 0
-            
-            positive_mask = torch.transpose(positive_param.repeat(positive_param.shape[0]).reshape(positive_param.shape[0],positive_param.shape[0]),0,1) # in all rows true where param in column was positive
+            # TODO: check this shape, must be same as augmented_lc
+            positive_mask = torch.transpose(positive_param.repeat(augmented_lc.shape[1]).reshape(augmented_lc.shape[1],augmented_lc.shape[0]),0,1) # in all rows true where param in column was positive
 
             parent_conditional = torch.where(positive_mask, augmented_lc, augmented_uc)
             new_row = torch.matmul(row, parent_conditional)
@@ -357,7 +357,7 @@ def backsubstitute(dp: "DeepPoly"):
         new_uc = []
         for row in uc:
             positive_param = row > 0
-            positive_mask = torch.transpose(positive_param.repeat(positive_param.shape[0]).reshape(positive_param.shape[0],positive_param.shape[0]),0,1) # in all rows true where param in column was positive
+            positive_mask = torch.transpose(positive_param.repeat(augmented_uc.shape[1]).reshape(augmented_uc.shape[1],augmented_uc.shape[0]),0,1) # in all rows true where param in column was positive
 
             parent_conditional = torch.where(positive_mask, augmented_uc, augmented_lc)
             new_row = torch.matmul(row, parent_conditional)

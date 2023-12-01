@@ -66,6 +66,7 @@ def main():
                 try:
                     verified = analyze(net, image, eps, true_label)
                 except RuntimeError:
+                    raise RuntimeError
                     verified = False
                 dt = perf_counter() - start
 
