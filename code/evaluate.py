@@ -5,14 +5,25 @@ from verifier import analyze
 from utils.loading import parse_spec
 from networks import get_network
 from time import perf_counter
+import multiprocessing as mp
 
 from rich import print
 
 
 DEVICE = 'cpu'
 PROJECT_PATH = os.path.join(pathlib.Path(__file__).parent.absolute(), '..').replace(os.sep, '/') # change \\ to / for windows
+TIMEOUT_SECONDS = 90
 
 
+class Analyzer:
+    def __init__(self, net, image, eps, true_label):
+        self.net = net
+        self.image = image
+        self.eps = eps
+        self.true_label = true_label
+
+    def run(self):
+        return analyze(self.net, self.image, self.eps, self.true_label)
 
 
 def get_gt():
@@ -62,12 +73,15 @@ def main():
                 pred_label = out.max(dim=1)[1].item()
                 assert pred_label == true_label
 
+                analyzer = Analyzer(net, image, eps, true_label)
                 start = perf_counter()
-                try:
-                    verified = analyze(net, image, eps, true_label)
-                except RuntimeError:
-                    raise RuntimeError
-                    verified = False
+                with mp.Pool(1) as pool:
+                    try:
+                        result = pool.apply_async(analyzer.run)
+                        verified = result.get(timeout=TIMEOUT_SECONDS)
+                    except (mp.context.TimeoutError, RuntimeError):
+                        verified = False
+
                 dt = perf_counter() - start
 
                 print(f'  [white]{i+1}.{j+1}  {net_name}: {spec}')
