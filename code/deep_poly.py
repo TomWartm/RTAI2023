@@ -6,6 +6,8 @@ from torch import nn
 
 from conv_to_fc import conv_to_fc
 
+import time
+
 
 def get_2d_mask(x):
     # repeats x len(x)+1 times
@@ -67,8 +69,10 @@ class DeepPoly:
         ]  # e.g. first layer [1,28,28]
 
         # convert Convolutional into linear layer
+        start = time.time()
         linear_layer = conv_to_fc(conv_layer, input_size)
-
+        end = time.time()
+        print("Conversion Conv -> Linear took: ", end - start)
         return self.propagate_linear(linear_layer)
 
     def propagate_relu(self, relu_layer: nn.ReLU) -> "DeepPoly":
@@ -346,7 +350,7 @@ def backsubstitute(dp: "DeepPoly", backprop_counter: int):
     #               | .  .  .  .     .     .  |
     #               | .  .  .  .        .  .  |
     #               | 0  0  0  0  .  .  .  1  |
-
+    start = time.time()
     augment = torch.zeros(dp.uc.shape[0])
     augment = torch.unsqueeze(augment, 1)
     uc = torch.cat((augment, torch.eye(dp.uc.shape[0])), 1)
@@ -368,8 +372,9 @@ def backsubstitute(dp: "DeepPoly", backprop_counter: int):
         e = torch.unsqueeze(e, 0)
         augmented_uc = torch.cat((e, dp.uc), 0)  # parent
         augmented_lc = torch.cat((e, dp.lc), 0)
-
+        
         # for upper conditional multiply with lower conditional of parent if parameter of this is negative
+        """
         new_lc = []
         for row in lc:
             positive_param = row >= 0
@@ -395,11 +400,21 @@ def backsubstitute(dp: "DeepPoly", backprop_counter: int):
 
         lc = torch.stack(new_lc)
         uc = torch.stack(new_uc)
+        """
+        positive_lc = torch.where(lc >= 0, lc, torch.zeros_like(lc))
+        negative_lc = torch.where(lc < 0, lc, torch.zeros_like(lc))
+        lc = torch.matmul(positive_lc , augmented_lc) + torch.matmul(negative_lc , augmented_uc)
+
+        positive_uc = torch.where(uc >= 0, uc, torch.zeros_like(uc))
+        negative_uc = torch.where(uc < 0, uc, torch.zeros_like(uc))
+        uc = torch.matmul(positive_uc , augmented_uc) + torch.matmul(negative_uc , augmented_lc)
 
         dp = dp.parent
-
+        
     lb, ub = get_bounds_from_conditional(dp.lb, dp.ub, lc, uc)
 
     # update bounds
-    current_dp.lb = torch.where(lb > current_dp.lb, lb, current_dp.lb)
-    current_dp.ub = torch.where(ub < current_dp.ub, ub, current_dp.ub)
+    current_dp.lb = lb 
+    current_dp.ub = ub 
+    end = time.time()
+    print("Backprop took: ", end - start)

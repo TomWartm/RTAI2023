@@ -46,6 +46,9 @@ def conv_to_fc(conv: torch.nn.Conv2d, input_size: Tuple[int, int]) -> torch.nn.L
 
     # Weights
     # Output coordinates
+
+    out_shape_prod = np.product(out_shape[1:])
+    in_shape_prod = np.product(in_shape[1:])
     for xo, yo in itertools.product(range(output_size[0]), range(output_size[1])):
         with torch.no_grad():
             # The upper-left corner of the weight matrix
@@ -65,10 +68,10 @@ def conv_to_fc(conv: torch.nn.Conv2d, input_size: Tuple[int, int]) -> torch.nn.L
                             # Copy the weights from the conv layer to the fc layer
                             # Helpful explanation: https://www.arxiv-vanity.com/papers/1712.01252/
 
-                            fc.weight[co * np.product(out_shape[1:]) +
+                            fc.weight[co *  out_shape_prod+
                                       xo * out_shape[2] +
                                       yo,
-                                      ci * np.product(in_shape[1:]) +
+                                      ci *  in_shape_prod+
                                       (xi0 + xd) * in_shape[2] +
                                       (yi0 + yd),
                             ] = cw
