@@ -12,12 +12,12 @@ allowing of course for some floating-point error.
 
 The fc layer is computational more expensive and might not be suitable for very large matrices.
 """
+import itertools
 from typing import Tuple
 
-import itertools
+import numpy as np
 import torch
 import torch.nn as nn
-import numpy as np
 
 
 def conv_to_fc(conv: torch.nn.Conv2d, input_size: Tuple[int, int]) -> torch.nn.Linear:
@@ -42,10 +42,9 @@ def conv_to_fc(conv: torch.nn.Conv2d, input_size: Tuple[int, int]) -> torch.nn.L
     # Bias 
     # i.e. Convolutional net has 3 output channels and and output size of 2x2 then
     # conv.bias = [a,b,c]  -> fc.bias = [a,a,a,a,b,b,b,b,c,c,c,c]
-    fc.bias = nn.Parameter(conv.bias.repeat_interleave(output_size[0]*output_size[1]))
+    fc.bias = nn.Parameter(conv.bias.repeat_interleave(output_size[0] * output_size[1]))
 
-
-    # Weights 
+    # Weights
     # Output coordinates
     for xo, yo in itertools.product(range(output_size[0]), range(output_size[1])):
         with torch.no_grad():
@@ -55,7 +54,7 @@ def conv_to_fc(conv: torch.nn.Conv2d, input_size: Tuple[int, int]) -> torch.nn.L
 
             # Position within the filter
             for xd, yd in itertools.product(
-                range(conv.kernel_size[0]), range(conv.kernel_size[1])
+                    range(conv.kernel_size[0]), range(conv.kernel_size[1])
             ):
                 # Output channel
                 for co in range(conv.out_channels):
@@ -67,22 +66,20 @@ def conv_to_fc(conv: torch.nn.Conv2d, input_size: Tuple[int, int]) -> torch.nn.L
                             # Helpful explanation: https://www.arxiv-vanity.com/papers/1712.01252/
 
                             fc.weight[co * np.product(out_shape[1:]) +
-                                xo * out_shape[2] +
-                                yo,
-                                ci * np.product(in_shape[1:]) +
-                                (xi0 + xd) * in_shape[2] +
-                                (yi0 + yd),
+                                      xo * out_shape[2] +
+                                      yo,
+                                      ci * np.product(in_shape[1:]) +
+                                      (xi0 + xd) * in_shape[2] +
+                                      (yi0 + yd),
                             ] = cw
 
     return fc
 
 
-
-
 def test_layer_conversion():
-    for stride in [1,2,3]:
-        for padding in [1,2,3]:
-            for filter_size in [2,3,4]:
+    for stride in [1, 2, 3]:
+        for padding in [1, 2, 3]:
+            for filter_size in [2, 3, 4]:
                 img = torch.rand((2, 16, 16))
                 conv = nn.Conv2d(2, 16, filter_size, stride=stride, padding=padding)
                 fc = conv_to_fc(conv, img.shape)

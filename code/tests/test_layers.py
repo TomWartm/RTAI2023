@@ -1,13 +1,14 @@
-import torch
-from torch import nn
-import sys
 import os
 import pathlib
+import sys
 from itertools import product
+
+import torch
+from torch import nn
 
 sys.path.append(os.path.join(os.path.join(pathlib.Path(__file__).parent.absolute()), '..'))
 
-from deep_poly import DeepPoly, construct_initial_shape
+from deep_poly import construct_initial_shape
 
 
 def test_linear():

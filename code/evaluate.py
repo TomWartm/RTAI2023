@@ -1,17 +1,17 @@
-import pathlib
-import os
-
-from verifier import analyze
-from utils.loading import parse_spec
-from networks import get_network
-from time import perf_counter
 import multiprocessing as mp
+import os
+import pathlib
+from time import perf_counter
 
 from rich import print
 
+from networks import get_network
+from utils.loading import parse_spec
+from verifier import analyze
 
 DEVICE = 'cpu'
-PROJECT_PATH = os.path.join(pathlib.Path(__file__).parent.absolute(), '..').replace(os.sep, '/') # change \\ to / for windows
+PROJECT_PATH = os.path.join(pathlib.Path(__file__).parent.absolute(), '..').replace(os.sep,
+                                                                                    '/')  # change \\ to / for windows
 TIMEOUT_SECONDS = 90
 
 
@@ -63,9 +63,10 @@ def main():
         for i, net_name in enumerate([net_name for net_name in gt.keys() if net_name.startswith(network_type[1])]):
             for j, spec in enumerate(gt[net_name]):
                 gt_verified = gt[net_name][spec]
-                true_label, dataset, image, eps = parse_spec(os.path.join(PROJECT_PATH, 'test_cases', net_name, spec).replace(os.sep, '/'))
-                net = get_network(net_name,
-                                  dataset, os.path.join(PROJECT_PATH, f'models/{dataset}_{net_name}.pt').replace(os.sep, '/')).to(DEVICE)
+                spec_path = os.path.join(PROJECT_PATH, 'test_cases', net_name, spec).replace(os.sep, '/')
+                true_label, dataset, image, eps = parse_spec(spec_path)
+                model_path = os.path.join(PROJECT_PATH, f'models/{dataset}_{net_name}.pt').replace(os.sep,'/')
+                net = get_network(net_name, dataset, model_path).to(DEVICE)
 
                 image = image.to(DEVICE)
                 out = net(image.unsqueeze(0))
@@ -84,7 +85,7 @@ def main():
 
                 dt = perf_counter() - start
 
-                print(f'  [white]{i+1}.{j+1}  {net_name}: {spec}')
+                print(f'  [white]{i + 1}.{j + 1}  {net_name}: {spec}')
                 test_score = 0
                 if verified and not gt_verified:
                     test_score = -2
@@ -101,7 +102,8 @@ def main():
                 scores_by_type[network_type[0]]['score'] += test_score
                 print('[white]--------------------------------------------------')
 
-        print(f'[bold white]  Score for {network_type[0]}: {scores_by_type[network_type[0]]["score"]} / {scores_by_type[network_type[0]]["max"]}')
+        print(
+            f'[bold white]  Score for {network_type[0]}: {scores_by_type[network_type[0]]["score"]} / {scores_by_type[network_type[0]]["max"]}')
         print('[white]--------------------------------------------------')
         score += scores_by_type[network_type[0]]['score']
         max_score += scores_by_type[network_type[0]]['max']
