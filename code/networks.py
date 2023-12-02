@@ -136,8 +136,8 @@ def get_network(
 
     model: Optional[nn.Sequential] = None
 
-    assert dataset in ["mnist", "cifar10"], f"Invalid dataset: {dataset}"
-
+    assert dataset in ["mnist", "cifar10", "test"], f"Invalid dataset: {dataset}"
+    
     in_ch, in_dim = (1, 28) if dataset == "mnist" else (3, 32)
 
     if name == "fc_base":  # DLN
@@ -257,6 +257,13 @@ def get_network(
             in_dim=in_dim,
             num_class=10,
         )
+    elif name == "test_1":
+        model = nn.Sequential(nn.Flatten(),
+                      nn.Linear(2,2),
+                      nn.ReLU(),
+                      nn.Linear(2,2),
+                      nn.ReLU(),
+                      nn.Linear(2,2))
     ### Hidden networks            
     else:
         assert False, f"Invalid network name: {name}"
