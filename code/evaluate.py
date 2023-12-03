@@ -12,7 +12,7 @@ from verifier import analyze
 DEVICE = 'cpu'
 PROJECT_PATH = os.path.join(pathlib.Path(__file__).parent.absolute(), '..').replace(os.sep,
                                                                                     '/')  # change \\ to / for windows
-TIMEOUT_SECONDS = 90
+TIMEOUT_SECONDS = 60
 
 
 class Analyzer:
