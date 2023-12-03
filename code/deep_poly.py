@@ -6,7 +6,6 @@ from torch import nn
 
 from conv_to_fc import conv_to_fc
 
-import time
 
 
 def get_2d_mask(x):
@@ -69,10 +68,8 @@ class DeepPoly:
         ]  # e.g. first layer [1,28,28]
 
         # convert Convolutional into linear layer
-        start = time.time()
         linear_layer = conv_to_fc(conv_layer, input_size)
-        end = time.time()
-        print("Conversion Conv -> Linear took: ", end - start)
+        
         return self.propagate_linear(linear_layer)
 
     def propagate_relu(self, relu_layer: nn.ReLU) -> "DeepPoly":
@@ -101,7 +98,7 @@ class DeepPoly:
         # alpha = 0 -> Naive 1
         # alpha = 1 -> Naive 2
         # alpha \in [0, 1]^n, alpha relaxation
-        return self.propagate_leakyrelu(None, alpha=1)
+        return self.propagate_leakyrelu(None, alpha=0)
 
     def propagate_leakyrelu(self, leakyrelu_layer: Optional['nn.LeakyReLU'],
                             alpha: Union[float, 'torch.tensor'] = 0) -> 'DeepPoly':
@@ -113,7 +110,8 @@ class DeepPoly:
         :param alpha:   Negative Slope for "non-leaky" ReLU layers of same shape as lb
         :return:    DeepPoly for that Layer
         """
-
+        #alpha = torch.rand(1) # uniform random [0,1]
+        alpha = 0.2
         slope = torch.divide(self.ub, torch.subtract(self.ub,
                                                      self.lb))  # only used for in between case i.e. sellf. lv < 0 and self.ub > 0 -> slope >= 0
 
@@ -245,6 +243,7 @@ def check_postcondition(dp: 'DeepPoly', true_label: int) -> bool:
         uc = torch.matmul(uc, augmented_uc)
         lc = torch.matmul(lc, augmented_lc)
 
+
         lb, ub = get_bounds_from_conditional(dp.parent.lb, dp.parent.ub, lc,
                                              uc)  # lb, ub are projections of bounds to output dimensions
 
@@ -350,7 +349,7 @@ def backsubstitute(dp: "DeepPoly", backprop_counter: int):
     #               | .  .  .  .     .     .  |
     #               | .  .  .  .        .  .  |
     #               | 0  0  0  0  .  .  .  1  |
-    start = time.time()
+    
     augment = torch.zeros(dp.uc.shape[0])
     augment = torch.unsqueeze(augment, 1)
     uc = torch.cat((augment, torch.eye(dp.uc.shape[0])), 1)
@@ -408,13 +407,14 @@ def backsubstitute(dp: "DeepPoly", backprop_counter: int):
         positive_uc = torch.where(uc >= 0, uc, torch.zeros_like(uc))
         negative_uc = torch.where(uc < 0, uc, torch.zeros_like(uc))
         uc = torch.matmul(positive_uc , augmented_uc) + torch.matmul(negative_uc , augmented_lc)
-
+        
         dp = dp.parent
         
     lb, ub = get_bounds_from_conditional(dp.lb, dp.ub, lc, uc)
 
-    # update bounds
-    current_dp.lb = lb 
-    current_dp.ub = ub 
-    end = time.time()
-    print("Backprop took: ", end - start)
+    # update bounds, if tighter then before
+    current_dp.lb = torch.where(lb > current_dp.lb, lb, current_dp.lb) 
+    current_dp.ub = torch.where(ub < current_dp.ub, ub, current_dp.ub)
+    
+    
+    

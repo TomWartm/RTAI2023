@@ -22,7 +22,7 @@ def analyze(
     :true_label:    Correct OutPut label, the NN should generate
     :return:    True if NN can be verified with perpetuation, False if not.
     """
-    
+
     dp = construct_initial_shape(inputs, eps)
     prev_layer = None
     counter = 0
@@ -45,15 +45,14 @@ def analyze(
             raise NotImplementedError(f"Unsupported layer type: {type(layer)}")
 
         if isinstance(prev_layer, nn.ReLU) or isinstance(prev_layer, nn.LeakyReLU):
-            # TODO: implement backsubstitution only unil last backsubstituted layer, i.e. no need to do the entier net again
             backsubstitute(dp, counter)
-            counter = 0
+            counter = 1
             
         prev_layer = layer
 
     dp = dp.propagate_final(true_label)
     counter += 1
-    backsubstitute(dp, counter)
+    #backsubstitute(dp, counter)
     return check_postcondition(dp, true_label)
 
 
