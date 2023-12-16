@@ -4,7 +4,12 @@ import torch
 from networks import get_network
 from utils.loading import parse_spec
 
-from deep_poly import construct_initial_shape, check_postcondition, backsubstitute, check_bounds
+from deep_poly import (
+    construct_initial_shape,
+    check_postcondition,
+    backsubstitute,
+    check_bounds,
+)
 from torch import nn
 
 DEVICE = "cpu"
@@ -23,37 +28,40 @@ def analyze(
     :return:    True if NN can be verified with perpetuation, False if not.
     """
 
+    verified = False
+    
     dp = construct_initial_shape(inputs, eps)
-    prev_layer = None
+    
     counter = 0
+    
     for layer in net:
+        
         if isinstance(layer, nn.Linear):
             dp = dp.propagate_linear(layer)
-            counter +=1
+            counter += 1
         elif isinstance(layer, nn.ReLU):
             dp = dp.propagate_relu(layer)
-            counter +=1
+            counter += 1
         elif isinstance(layer, nn.LeakyReLU):
             dp = dp.propagate_leakyrelu(layer)
-            counter +=1
+            counter += 1
         elif isinstance(layer, nn.Conv2d):
             dp = dp.propagate_conv2d(layer)
-            counter +=1
+            counter += 1
         elif isinstance(layer, nn.Flatten):
             dp = dp.propagate_flatten()
         else:
             raise NotImplementedError(f"Unsupported layer type: {type(layer)}")
 
-        if isinstance(prev_layer, nn.ReLU) or isinstance(prev_layer, nn.LeakyReLU):
-            backsubstitute(dp, counter)
-            counter = 1
-            
-        prev_layer = layer
+        
+        backsubstitute(dp, counter) # Or do we need to backsubstitute back to the start??
+        
+        
 
     dp = dp.propagate_final(true_label)
-    counter += 1
-    #backsubstitute(dp, counter)
+
     return check_postcondition(dp, true_label)
+   
 
 
 def main():
