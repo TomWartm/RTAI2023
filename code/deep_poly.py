@@ -28,14 +28,23 @@ class DeepPoly:
             lc: torch.Tensor,
             uc: torch.Tensor,
             parent: Optional["DeepPoly"],
-           
     ):
         self.lb = lb
         self.ub = ub
         self.lc = lc
         self.uc = uc
         self.parent = parent
-        
+
+        # min volume alpha
+        self.alpha = torch.ones(ub.shape)
+        self.alpha[self.ub > -self.lb] = 0.0
+
+        # random alpha
+        #self.alpha = torch.rand(ub.shape)
+
+    def perturb(self, perturbation):
+        self.alpha += perturbation
+        self.alpha = torch.clamp(self.alpha, 0, 1)
 
     def propagate_linear(self, linear_layer: nn.Linear) -> "DeepPoly":
         """
@@ -101,10 +110,10 @@ class DeepPoly:
         # alpha = 1 -> Naive 2
         # alpha \in [0, 1]^n, alpha relaxation
         
-        return self.propagate_leakyrelu(None, alpha=1)
+        return self.propagate_leakyrelu(None)
 
     def propagate_leakyrelu(self, leakyrelu_layer: Optional['nn.LeakyReLU'],
-                            alpha: Union[float, 'torch.tensor'] = 0) -> 'DeepPoly':
+                            alpha: Union[float, 'torch.tensor'] = None) -> 'DeepPoly':
         """
         NOT IMPLEMENTED YET
         Generate DeepPoly for a leaky ReLU layer
@@ -115,8 +124,8 @@ class DeepPoly:
         """
 
         # TODO: learn the best alpha
-        alpha = 1*torch.ones(self.ub.shape) # torch.rand(self.ub.shape) # uniform random [0,1]
-        alpha[self.ub > -self.lb] =  0.0 # minimize area
+        #alpha = 1*torch.ones(self.ub.shape) # torch.rand(self.ub.shape) # uniform random [0,1]
+        #alpha[self.ub > -self.lb] =  0.0 # minimize area
         
 
         slope = torch.divide(self.ub, torch.subtract(self.ub, self.lb))  # only used for in between case i.e. sellf. lv < 0 and self.ub > 0 -> slope >= 0
@@ -145,13 +154,14 @@ class DeepPoly:
         m = torch.divide(torch.subtract(torch.multiply(negative_slope, self.lb), self.ub), torch.subtract(self.lb, self.ub))
         q = torch.neg(torch.divide(torch.multiply(torch.multiply(self.lb, torch.subtract(negative_slope, 1)), self.ub), torch.subtract(self.lb, self.ub)))
         assert torch.logical_or(torch.logical_not(between), torch.greater_equal(m, 0)).all(), "slope should be positive in between case"
+
         if negative_slope <= 1:
             uc = torch.where(between_mask, torch.cat((torch.unsqueeze(q, 1), torch.multiply(torch.eye(self.lb.shape[0]), m)), 1), uc)
-            lc = torch.where(between_mask, torch.cat((torch.unsqueeze(torch.zeros(self.lb.shape[0]), 1), torch.multiply(torch.eye(self.lb.shape[0]), alpha * negative_slope + (1 - alpha) * 1)), 1), lc)
+            lc = torch.where(between_mask, torch.cat((torch.unsqueeze(torch.zeros(self.lb.shape[0]), 1), torch.multiply(torch.eye(self.lb.shape[0]), self.alpha * negative_slope + (1 - self.alpha) * 1)), 1), lc)
 
         # case2: negative slope > 1
         else:
-            uc = torch.where(between_mask, torch.cat((torch.unsqueeze(torch.zeros(self.lb.shape[0]), 1), torch.multiply(torch.eye(self.lb.shape[0]), alpha * negative_slope + (1 - alpha) * 1)), 1), uc)
+            uc = torch.where(between_mask, torch.cat((torch.unsqueeze(torch.zeros(self.lb.shape[0]), 1), torch.multiply(torch.eye(self.lb.shape[0]), self.alpha * negative_slope + (1 - self.alpha) * 1)), 1), uc)
             lc = torch.where(between_mask, torch.cat((torch.unsqueeze(q, 1), torch.multiply(torch.eye(self.lb.shape[0]), m)), 1), lc)
 
         lb, ub = get_bounds_from_conditional(self.lb, self.ub, lc, uc)
@@ -197,7 +207,7 @@ class DeepPoly:
         return DeepPoly(lb, ub, lc, uc, self)
 
 
-def check_postcondition(dp: 'DeepPoly', true_label: int) -> bool:
+def check_postcondition(dp: 'DeepPoly', true_label: int) -> (bool, float):
     """
     Do backsubstitution over all DeepPoly layers and verify bounds.
 
@@ -224,6 +234,8 @@ def check_postcondition(dp: 'DeepPoly', true_label: int) -> bool:
 
     best_lb = torch.full(dp.lb.shape,float('-inf'))
     best_ub = torch.full(dp.lb.shape,float('inf'))
+
+    loss = None
     
     while dp.parent:
         # UPDATE RULE OF CONDITIONAL MATRICES
@@ -257,12 +269,14 @@ def check_postcondition(dp: 'DeepPoly', true_label: int) -> bool:
         best_ub = torch.where(ub<best_ub, ub, best_ub)
         best_lb = torch.where(lb>best_lb, lb, best_lb)
 
+        loss = torch.where(best_lb < 0, -best_lb, 0).sum()
+
         if torch.greater_equal(best_lb,0).all():
-            return True
+            return True, loss
 
         dp = dp.parent
 
-    return False
+    return False, loss
 
 
 def construct_initial_shape(x: torch.Tensor, eps: float) -> 'DeepPoly':
