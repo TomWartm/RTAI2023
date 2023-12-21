@@ -141,17 +141,26 @@ class DeepPoly:
         between = torch.where(torch.logical_and((self.lb < 0), (self.ub > 0)), torch.ones_like(self.lb, dtype=torch.bool), torch.zeros_like(self.lb, dtype=torch.bool))
         between_mask = get_2d_mask(between)  # is 1 in columns having negative lower bound and positive upper bound, else 0
 
+        # minimize Area 19 / 20 (alpha is slope)
+        alpha = torch.where(torch.argmin(torch.cat([torch.unsqueeze(torch.abs(self.ub**2 * (1-negative_slope)), 1), torch.unsqueeze(torch.abs(self.lb**2 * (1-negative_slope)), 1)], dim=1), dim=1).to(torch.bool), 1, negative_slope)
+
+        # minimize sum of biggest dist 17/20 (alpha is slope)
+        #alpha = (self.lb ** 2 * negative_slope + self.ub ** 2) / (self.lb ** 2 + self.ub ** 2)
+
+        # weighted average 10/20 (alpha is share of 1 and (1-alpha) * negative_slope)
+        #alpha = self.ub / (self.ub+ negative_slope * self.lb)
+
         # case1: negative slope <1
         m = torch.divide(torch.subtract(torch.multiply(negative_slope, self.lb), self.ub), torch.subtract(self.lb, self.ub))
         q = torch.neg(torch.divide(torch.multiply(torch.multiply(self.lb, torch.subtract(negative_slope, 1)), self.ub), torch.subtract(self.lb, self.ub)))
         assert torch.logical_or(torch.logical_not(between), torch.greater_equal(m, 0)).all(), "slope should be positive in between case"
         if negative_slope <= 1:
             uc = torch.where(between_mask, torch.cat((torch.unsqueeze(q, 1), torch.multiply(torch.eye(self.lb.shape[0]), m)), 1), uc)
-            lc = torch.where(between_mask, torch.cat((torch.unsqueeze(torch.zeros(self.lb.shape[0]), 1), torch.multiply(torch.eye(self.lb.shape[0]), alpha * negative_slope + (1 - alpha) * 1)), 1), lc)
+            lc = torch.where(between_mask, torch.cat((torch.unsqueeze(torch.zeros(self.lb.shape[0]), 1), torch.multiply(torch.eye(self.lb.shape[0]), alpha)), 1), lc)
 
         # case2: negative slope > 1
         else:
-            uc = torch.where(between_mask, torch.cat((torch.unsqueeze(torch.zeros(self.lb.shape[0]), 1), torch.multiply(torch.eye(self.lb.shape[0]), alpha * negative_slope + (1 - alpha) * 1)), 1), uc)
+            uc = torch.where(between_mask, torch.cat((torch.unsqueeze(torch.zeros(self.lb.shape[0]), 1), torch.multiply(torch.eye(self.lb.shape[0]), alpha)), 1), uc)
             lc = torch.where(between_mask, torch.cat((torch.unsqueeze(q, 1), torch.multiply(torch.eye(self.lb.shape[0]), m)), 1), lc)
 
         lb, ub = get_bounds_from_conditional(self.lb, self.ub, lc, uc)
