@@ -40,11 +40,7 @@ class DeepPoly:
         self.alpha[self.ub > -self.lb] = 0.0
 
         # random alpha
-        #self.alpha = torch.rand(ub.shape)
-
-    def perturb(self, perturbation):
-        self.alpha += perturbation
-        self.alpha = torch.clamp(self.alpha, 0, 1)
+        # self.alpha = torch.rand(ub.shape)
 
     def propagate_linear(self, linear_layer: nn.Linear) -> "DeepPoly":
         """
@@ -83,7 +79,7 @@ class DeepPoly:
         
         return self.propagate_linear(linear_layer)
 
-    def propagate_relu(self, relu_layer: nn.ReLU) -> "DeepPoly":
+    def propagate_relu(self, relu_layer: nn.ReLU, perturbation=None) -> "DeepPoly":
         """
         NOT IMPLEMENTED YET
         Generate DeepPoly for a ReLU layer
@@ -110,10 +106,11 @@ class DeepPoly:
         # alpha = 1 -> Naive 2
         # alpha \in [0, 1]^n, alpha relaxation
         
-        return self.propagate_leakyrelu(None)
+        return self.propagate_leakyrelu(None, perturbation=perturbation)
 
     def propagate_leakyrelu(self, leakyrelu_layer: Optional['nn.LeakyReLU'],
-                            alpha: Union[float, 'torch.tensor'] = None) -> 'DeepPoly':
+                            alpha: Union[float, 'torch.tensor'] = None,
+                            perturbation=None) -> 'DeepPoly':
         """
         NOT IMPLEMENTED YET
         Generate DeepPoly for a leaky ReLU layer
@@ -155,13 +152,19 @@ class DeepPoly:
         q = torch.neg(torch.divide(torch.multiply(torch.multiply(self.lb, torch.subtract(negative_slope, 1)), self.ub), torch.subtract(self.lb, self.ub)))
         assert torch.logical_or(torch.logical_not(between), torch.greater_equal(m, 0)).all(), "slope should be positive in between case"
 
+        alpha = self.alpha
+        if perturbation is not None:
+            alpha += perturbation
+
+        alpha = torch.clamp(alpha, 0, 1)
+
         if negative_slope <= 1:
             uc = torch.where(between_mask, torch.cat((torch.unsqueeze(q, 1), torch.multiply(torch.eye(self.lb.shape[0]), m)), 1), uc)
-            lc = torch.where(between_mask, torch.cat((torch.unsqueeze(torch.zeros(self.lb.shape[0]), 1), torch.multiply(torch.eye(self.lb.shape[0]), self.alpha * negative_slope + (1 - self.alpha) * 1)), 1), lc)
+            lc = torch.where(between_mask, torch.cat((torch.unsqueeze(torch.zeros(self.lb.shape[0]), 1), torch.multiply(torch.eye(self.lb.shape[0]), alpha * negative_slope + (1 - alpha) * 1)), 1), lc)
 
         # case2: negative slope > 1
         else:
-            uc = torch.where(between_mask, torch.cat((torch.unsqueeze(torch.zeros(self.lb.shape[0]), 1), torch.multiply(torch.eye(self.lb.shape[0]), self.alpha * negative_slope + (1 - self.alpha) * 1)), 1), uc)
+            uc = torch.where(between_mask, torch.cat((torch.unsqueeze(torch.zeros(self.lb.shape[0]), 1), torch.multiply(torch.eye(self.lb.shape[0]), alpha * negative_slope + (1 - alpha) * 1)), 1), uc)
             lc = torch.where(between_mask, torch.cat((torch.unsqueeze(q, 1), torch.multiply(torch.eye(self.lb.shape[0]), m)), 1), lc)
 
         lb, ub = get_bounds_from_conditional(self.lb, self.ub, lc, uc)
